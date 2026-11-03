@@ -6,6 +6,10 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_top_bar.h"
+#include "customgram/cg_animated_avatar.h"
+#include "customgram/cg_avatar_frame_renderer.h"
+#include "customgram/cg_profile_banner.h"
+#include "window/customgram_profile_frame.h"
 
 #include "api/api_peer_colors.h"
 #include "api/api_peer_photo.h"
@@ -1239,6 +1243,11 @@ void TopBar::setupUserpicButton(
 	_userpicButton = base::make_unique_q<Userpic>(
 		this,
 		[=] { return _hasStories; });
+    if (const auto self = _peer->asUser(); self && self->isSelf()) {
+                new Customgram::AnimatedAvatarLayer(_userpicButton.get());
+        new Customgram::AvatarFrameLayer(_userpicButton.get());
+        new Customgram::ProfileBannerLayer(this);
+    }
 
 	if (_savedMessages) {
 		_userpicButton->setAttribute(Qt::WA_TransparentForMouseEvents, true);

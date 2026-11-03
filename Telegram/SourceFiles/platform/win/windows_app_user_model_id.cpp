@@ -1,4 +1,4 @@
-/*
+﻿/*
 This file is part of Telegram Desktop,
 the official desktop application for the Telegram messaging service.
 
@@ -28,7 +28,7 @@ const PROPERTYKEY pkey_AppUserModel_ToastActivator = { { 0x9F4C2855, 0x9F79, 0x4
 #ifdef OS_WIN_STORE
 const WCHAR AppUserModelIdBase[] = L"Telegram.TelegramDesktop.Store";
 #else // OS_WIN_STORE
-const WCHAR AppUserModelIdBase[] = L"Telegram.TelegramDesktop";
+const WCHAR AppUserModelIdBase[] = L"Customgram.Desktop";
 #endif // OS_WIN_STORE
 
 [[nodiscard]] QString PinnedIconsPath() {
@@ -213,7 +213,7 @@ void CleanupShortcut() {
 		return;
 	}
 
-	QString path = systemShortcutPath() + u"Telegram.lnk"_q;
+	QString path = systemShortcutPath() + u"Customgram.lnk"_q;
 	std::wstring p = QDir::toNativeSeparators(path).toStdWString();
 
 	DWORD attributes = GetFileAttributes(p.c_str());
@@ -345,8 +345,8 @@ bool checkInstalled(QString path = {}) {
 		}
 	}
 
-	const auto installed = u"Telegram Desktop/Telegram.lnk"_q;
-	const auto old = u"Telegram Win (Unofficial)/Telegram.lnk"_q;
+	const auto installed = u"Customgram/Customgram.lnk"_q;
+	const auto old = u"Customgram Desktop/Customgram.lnk"_q;
 	return validateShortcutAt(path + installed)
 		|| validateShortcutAt(path + old);
 }
@@ -358,7 +358,7 @@ bool ValidateShortcut() {
 	}
 
 	if (cAlphaVersion()) {
-		path += u"TelegramAlpha.lnk"_q;
+		path += u"CustomgramAlpha.lnk"_q;
 		if (validateShortcutAt(path)) {
 			return true;
 		}
@@ -367,7 +367,7 @@ bool ValidateShortcut() {
 			return true;
 		}
 
-		path += u"Telegram.lnk"_q;
+		path += u"Customgram.lnk"_q;
 		if (validateShortcutAt(path)) {
 			return true;
 		}
@@ -385,6 +385,16 @@ bool ValidateShortcut() {
 	}
 
 	hr = shellLink->SetArguments(L"");
+	if (!SUCCEEDED(hr)) {
+		return false;
+	}
+
+	hr = shellLink->SetDescription(L"Customgram");
+	if (!SUCCEEDED(hr)) {
+		return false;
+	}
+
+	hr = shellLink->SetIconLocation(MyExecutablePath().c_str(), 0);
 	if (!SUCCEEDED(hr)) {
 		return false;
 	}

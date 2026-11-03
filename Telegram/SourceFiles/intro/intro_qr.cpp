@@ -563,21 +563,38 @@ void QrWidget::cancelled() {
 }
 
 QImage TelegramLogoImage() {
-	const auto size = QSize(st::introQrCenterSize, st::introQrCenterSize);
-	auto result = QImage(
-		size * style::DevicePixelRatio(),
-		QImage::Format_ARGB32_Premultiplied);
-	result.fill(Qt::transparent);
-	result.setDevicePixelRatio(style::DevicePixelRatio());
-	{
-		auto p = QPainter(&result);
-		auto hq = PainterHighQualityEnabler(p);
-		p.setBrush(QrActiveColor());
-		p.setPen(Qt::NoPen);
-		p.drawEllipse(QRect(QPoint(), size));
-		st::introQrPlane.paintInCenter(p, QRect(QPoint(), size));
-	}
-	return result;
+    const auto size = QSize(
+        st::introQrCenterSize,
+        st::introQrCenterSize);
+
+    const auto ratio = style::DevicePixelRatio();
+
+    auto result = QImage(
+        size * ratio,
+        QImage::Format_ARGB32_Premultiplied);
+
+    result.fill(Qt::transparent);
+    result.setDevicePixelRatio(ratio);
+
+    const auto logo = QImage(
+        QStringLiteral(":/gui/art/customgram_qr.png"));
+
+    {
+        auto p = QPainter(&result);
+        auto hq = PainterHighQualityEnabler(p);
+
+        if (!logo.isNull()) {
+            p.drawImage(QRect(QPoint(), size), logo);
+        } else {
+            p.setBrush(QrActiveColor());
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(QRect(QPoint(), size));
+            st::introQrPlane.paintInCenter(
+                p, QRect(QPoint(), size));
+        }
+    }
+
+    return result;
 }
 
 } // namespace details

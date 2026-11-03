@@ -2556,7 +2556,7 @@ else()
         set(bundle_identifier "com.tdesktop.Telegram")
     endif()
     set(bundle_entitlements "Telegram.entitlements")
-    set(output_name "Telegram")
+    set(output_name "Customgram")
 endif()
 
 if (CMAKE_GENERATOR STREQUAL Xcode)
@@ -2809,3 +2809,13 @@ if (LINUX AND DESKTOP_APP_USE_PACKAGED)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.telegram.desktop.service" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/dbus-1/services")
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.telegram.desktop.metainfo.xml" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
 endif()
+
+# CUSTOMGRAM_V135_SOURCES - local profile customization
+target_sources(Telegram PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_profile_customization.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_animated_avatar.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_profile_banner.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_avatar_frame_renderer.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_profile_custom_box.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_media_custom_box.cpp"
+)

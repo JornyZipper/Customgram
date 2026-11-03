@@ -17,6 +17,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/sender.h"
 #include "api/api_single_message_search.h"
 
+class QTimer;
+class QNetworkAccessManager;
+class QNetworkReply;
+
 class ChannelData;
 
 namespace MTP {
@@ -260,6 +264,10 @@ private:
 	void refreshTopBars();
 	void showSearchInTopBar(anim::type animated);
 	void checkUpdateStatus();
+	void checkCustomgramUpdates();
+	void setupCustomgramRealtime();
+	void connectCustomgramRealtime();
+	void showCustomgramUpdateButton();
 	void openBotMainApp(not_null<UserData*> bot);
 	void changeOpenedSubsection(
 		FnMut<void()> change,
@@ -377,6 +385,15 @@ private:
 	std::vector<std::unique_ptr<Suggestions>> _hidingSuggestions;
 	class BottomButton;
 	object_ptr<BottomButton> _updateTelegram = { nullptr };
+	QTimer *_customgramUpdateTimer = nullptr;
+	bool _customgramUpdateChecking = false;
+	qint64 _customgramLastUpdateCheckMs = 0;
+	QNetworkAccessManager *_customgramRealtimeManager = nullptr;
+	QNetworkReply *_customgramRealtimeReply = nullptr;
+	QTimer *_customgramRealtimeRetryTimer = nullptr;
+	QString _customgramRealtimeUrl;
+	QByteArray _customgramRealtimeBuffer;
+	int _customgramRealtimeBackoffMs = 5000;
 	object_ptr<BottomButton> _loadMoreChats = { nullptr };
 	std::unique_ptr<Ui::DownloadBar> _downloadBar;
 	std::unique_ptr<Window::ConnectionState> _connecting;

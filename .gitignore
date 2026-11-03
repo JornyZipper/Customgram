@@ -74,3 +74,26 @@ settings.local.json
 
 # Generated changelog page (built by CI, deployed to GitHub Pages)
 /docs/changelog/
+
+# Local backups and IDE files
+*.bak
+*.backup
+*.backup-*
+*.before-*
+*.pre-*
+*.cg*-*
+*.bak-*
+/Telegram/.qtcreator/
+
+# Local build and runtime files
+/dist/
+/cg_animated_avatar.cpp
+/cg_animated_avatar.h
+/cg_avatar_frame_renderer.cpp
+/cg_avatar_frame_renderer.h
+/cg_profile_banner.cpp
+/cg_profile_banner.h
+/cg_profile_custom_box.cpp
+/cg_profile_custom_box.h
+/cg_profile_customization.cpp
+/cg_profile_customization.h

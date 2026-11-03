@@ -62,6 +62,22 @@ bool DarkTasbarValueValid/* = false*/;
 [[nodiscard]] QImage MonochromeIconFor(int size, bool darkMode) {
 	Expects(size > 0);
 
+	// Render the Customgram logo instead of Telegram's built-in tray SVG.
+	// Keep the existing SVG renderer below as a safe fallback when the
+	// custom resource was not bundled into telegram.qrc.
+	const auto customgram = QImage(u":/gui/art/customgram_qr.png"_q);
+	if (!customgram.isNull()) {
+		const auto color = darkMode ? 255 : 0;
+		const auto alpha = darkMode ? 255 : 228;
+		return style::colorizeImage(
+			customgram.scaled(
+				size,
+				size,
+				Qt::KeepAspectRatio,
+				Qt::SmoothTransformation),
+			{ color, color, color, alpha });
+	}
+
 	static const auto Content = [&] {
 		auto f = QFile(u":/gui/icons/tray/monochrome.svg"_q);
 		return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
@@ -123,15 +139,27 @@ bool DarkTasbarValueValid/* = false*/;
 	auto result = [&] {
 		if (const auto it = scaled.find(args.size); it != scaled.end()) {
 			return it->second;
-		} else if (monochrome && darkMode) {
-			return MonochromeIconFor(args.size, *darkMode);
+		}
+
+		if (monochrome && darkMode) {
+			return scaled.emplace(
+				args.size,
+				MonochromeIconFor(args.size, *darkMode)
+			).first->second;
+		}
+
+		// Prefer the Customgram artwork for both the tray and taskbar icon.
+		// Keep the original Telegram graphic only as a fallback, so a
+		// missing resource never leaves an empty tray icon.
+		auto logo = QImage(u":/gui/art/customgram_qr.png"_q);
+		if (logo.isNull()) {
+			logo = smallIcon
+				? Window::LogoNoMargin()
+				: Window::Logo();
 		}
 		return scaled.emplace(
 			args.size,
-			(smallIcon
-				? Window::LogoNoMargin()
-				: Window::Logo()
-			).scaledToWidth(args.size, Qt::SmoothTransformation)
+			logo.scaledToWidth(args.size, Qt::SmoothTransformation)
 		).first->second;
 	}();
 	if ((!monochrome || !darkMode) && supportMode) {

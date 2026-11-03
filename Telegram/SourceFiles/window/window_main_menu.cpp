@@ -6,6 +6,13 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_main_menu.h"
+#include "customgram/cg_media_custom_box.h"
+#include <QtCore/QTimer>
+#include "customgram/cg_profile_custom_box.h"
+#include "customgram/cg_animated_avatar.h"
+#include "customgram/cg_avatar_frame_renderer.h"
+#include <QtWidgets/QMessageBox>
+#include "window/customgram_profile_frame.h"
 
 #include "apiwrap.h"
 #include "base/event_filter.h"
@@ -54,6 +61,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/snowflakes.h"
 #include "ui/effects/toggle_arrow.h"
 #include "ui/new_badges.h"
+#include "ui/layers/generic_box.h"
+#include "ui/widgets/labels.h"
 #include "ui/painter.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
@@ -72,6 +81,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
+#include "styles/style_layers.h" // st::boxLabel, st::boxPadding
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 #include "styles/style_wallet.h"
@@ -83,6 +93,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
+#include <QtWidgets/QFileDialog>
+#include <QtWidgets/QFontDialog>
 
 namespace Window {
 namespace {
@@ -388,18 +400,16 @@ MainMenu::MainMenu(
 	parentResized();
 
 	_telegram->setMarkedText(tr::link(
-		u"Telegram Desktop"_q,
-		u"https://desktop.telegram.org"_q));
+		u"Customgram"_q,
+		u"https://github.com/JornyZipper/Customgram"_q));
 	_telegram->setLinksTrusted();
 	// The canary version is too long for the "Version {version}" form.
 	_version->setMarkedText(
 		tr::link(
-			Core::BuildIsCanary
-				? currentVersionShortText()
-				: tr::lng_settings_current_version(
-					tr::now,
-					lt_version,
-					currentVersionShortText()),
+			tr::lng_settings_current_version(
+				tr::now,
+				lt_version,
+				u"V13.0.5 x64"_q),
 			1) // Link 1.
 		.append(QChar(' '))
 		.append(QChar(8211))
@@ -592,6 +602,8 @@ void MainMenu::setupArchive() {
 }
 
 void MainMenu::setupUserpicButton() {
+        new Customgram::AnimatedAvatarLayer(_userpicButton.data());
+    new Customgram::AvatarFrameLayer(_userpicButton.data());
 	_userpicButton->setClickedCallback([=] { toggleAccounts(); });
 	_userpicButton->show();
 }
@@ -803,6 +815,285 @@ void MainMenu::setupMenu() {
 			&_controller->window(),
 			toggle);
 	}, _nightThemeToggle->lifetime());
+
+	// Customgram: custom settings entry directly below Night Mode.
+	addAction(
+		rpl::single(u"Customgram"_q),
+		{ &st::menuIconSettings }
+	)->setClickedCallback([=] {
+		controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+			box->setTitle(rpl::single(u"Customgram"_q));
+			box->addRow(
+				object_ptr<Ui::FlatLabel>(
+					box,
+					rpl::single(u"Настрой Customgram под себя. Выбери раздел:"_q),
+					st::boxLabel),
+				st::boxPadding);
+
+			const auto sections = box->addRow(
+				object_ptr<Ui::VerticalLayout>(box),
+				st::boxPadding);
+
+			const auto showSection = [=](
+					const QString &title,
+					const QString &description) {
+				controller->show(Box([=](not_null<Ui::GenericBox*> page) {
+					page->setTitle(rpl::single(title));
+					page->addRow(
+						object_ptr<Ui::FlatLabel>(
+							page,
+							rpl::single(description),
+							st::boxLabel),
+						st::boxPadding);
+					page->addButton(tr::lng_close(), [=] {
+						page->closeBox();
+					});
+				}));
+			};
+
+			AddButtonWithIcon(
+				sections,
+				rpl::single(u"Внешний вид"_q),
+				st::mainMenuButton,
+				{ &st::menuIconNightMode }
+			)->setClickedCallback([=] {
+				controller->show(Box([=](not_null<Ui::GenericBox*> page) {
+					page->setTitle(rpl::single(u"Внешний вид"_q));
+					const auto actions = page->addRow(
+						object_ptr<Ui::VerticalLayout>(page),
+						st::boxPadding);
+
+					AddButtonWithIcon(
+						actions,
+						rpl::single(u"Сменить светлую / тёмную тему"_q),
+						st::mainMenuButton,
+						{ &st::menuIconNightMode }
+					)->setClickedCallback([=] {
+						if (Window::Theme::Background()->editingTheme()) {
+							controller->show(Ui::MakeInformBox(
+								tr::lng_theme_editor_cant_change_theme()));
+							return;
+						}
+						Window::Theme::ToggleNightModeWithConfirmation(
+							&controller->window(), [=] {
+							Window::Theme::ToggleNightMode();
+							Window::Theme::KeepApplied();
+						});
+					});
+
+					const auto systemSettings = &Core::App().settings();
+					if (systemSettings->systemDarkMode().has_value()) {
+						const auto autoLabel = systemSettings->systemDarkModeEnabled()
+							? u"Автотема Windows: ВКЛ"_q
+							: u"Автотема Windows: ВЫКЛ"_q;
+						AddButtonWithIcon(
+							actions,
+							rpl::single(autoLabel),
+							st::mainMenuButton,
+							{ &st::menuIconNightMode }
+						)->setClickedCallback([=] {
+							if (Window::Theme::Background()->editingTheme()) {
+								controller->show(Ui::MakeInformBox(
+									tr::lng_theme_editor_cant_change_theme()));
+								return;
+							}
+							systemSettings->setSystemDarkModeEnabled(
+								!systemSettings->systemDarkModeEnabled());
+							Core::App().saveSettingsDelayed();
+							controller->show(Ui::MakeInformBox(
+								u"Настройка сохранена. Открой раздел снова, чтобы увидеть статус."_q));
+						});
+					}
+
+					AddButtonWithIcon(
+						actions,
+						rpl::single(u"Импортировать тему (.tdesktop-theme)"_q),
+						st::mainMenuButton,
+						{ &st::menuIconSettings }
+					)->setClickedCallback([=] {
+						const auto file = QFileDialog::getOpenFileName(
+							page,
+							u"Выбрать тему Customgram"_q,
+							QString(),
+							u"Telegram Desktop Theme (*.tdesktop-theme)"_q);
+						if (file.isEmpty()) return;
+						if (!Window::Theme::Apply(file)) {
+							controller->show(Ui::MakeInformBox(
+								u"Не удалось загрузить тему."_q));
+							return;
+						}
+						Window::Theme::KeepApplied();
+					});
+
+					AddButtonWithIcon(
+						actions,
+						rpl::single(u"Сбросить тему"_q),
+						st::mainMenuButton,
+						{ &st::menuIconRestore }
+					)->setClickedCallback([=] {
+						Window::Theme::ApplyDefaultWithPath(QString());
+						Window::Theme::KeepApplied();
+					});
+
+					AddButtonWithIcon(
+						actions,
+						rpl::single(u"Выбрать шрифт интерфейса"_q),
+						st::mainMenuButton,
+						{ &st::menuIconSettings }
+					)->setClickedCallback([=] {
+						bool ok = false;
+						const auto current = Core::App().settings().customFontFamily();
+						const auto selected = QFontDialog::getFont(
+							&ok,
+							QFont(current.isEmpty() ? u"Arial"_q : current),
+							page,
+							u"Шрифт Customgram"_q);
+						if (!ok) return;
+						Core::App().settings().setCustomFontFamily(selected.family());
+						Local::writeSettings();
+						Core::Restart();
+					});
+
+					AddButtonWithIcon(
+						actions,
+						rpl::single(u"Сбросить шрифт"_q),
+						st::mainMenuButton,
+						{ &st::menuIconRestore }
+					)->setClickedCallback([=] {
+						Core::App().settings().setCustomFontFamily(QString());
+						Local::writeSettings();
+						Core::Restart();
+					});
+
+					page->addButton(tr::lng_close(), [=] {
+						page->closeBox();
+					});
+				}));
+});
+
+			AddButtonWithIcon(
+                sections,
+                rpl::single(u"Профиль"_q),
+                st::mainMenuButton,
+                { &st::menuIconProfile }
+            )->setClickedCallback([=] {
+                controller->show(Box([](not_null<Ui::GenericBox*> profileBox) {
+                    Customgram::SetupProfileCustomizationBox(profileBox.get());
+                }));
+                return; // v13.0.5 editor; legacy menu below is unused.
+                controller->show(Box([=](not_null<Ui::GenericBox*> page) {
+                    page->setTitle(rpl::single(u"Рамка аватарки"_q));
+                    page->addRow(
+                        object_ptr<Ui::FlatLabel>(
+                            page,
+                            rpl::single(u"Только у вас в Customgram. Другие люди не увидят рамку."_q),
+                            st::boxLabel),
+                        st::boxPadding);
+
+                    const auto choices = page->addRow(
+                        object_ptr<Ui::VerticalLayout>(page),
+                        st::boxPadding);
+                    const auto choice = [=](const QString &title, int styleId) {
+                        AddButtonWithIcon(
+                            choices,
+                            rpl::single(title),
+                            st::mainMenuButton,
+                            { &st::menuIconProfile }
+                        )->setClickedCallback([=] {
+                            Customgram::SetProfileFrameStyle(styleId);
+                            page->closeBox();
+                        });
+                    };
+                    choice(u"Без рамки"_q, 0);
+                    choice(u"Неоновая голубая"_q, 1);
+                    choice(u"Золотая"_q, 2);
+                    choice(u"Градиентная"_q, 3);
+                    choice(u"Анимированная"_q, 4);
+                    // Customgram: custom PNG/GIF avatar frame (local only).
+                    page->addRow(
+                        object_ptr<Ui::FlatLabel>(
+                            page,
+                            rpl::single(u"Своя рамка: PNG или GIF, квадрат 64–2048 px (лучше 512×512). Прозрачный фон и прозрачный центр. PNG до 12 МБ, GIF до 15 МБ."_q),
+                            st::boxLabel),
+                        st::boxPadding);
+                    if (Customgram::HasCustomProfileFrame()) {
+                        choice(u"Моя рамка (сохранённая)"_q, 5);
+                    }
+                    AddButtonWithIcon(
+                        choices,
+                        rpl::single(u"Добавить свою рамку (PNG / GIF)"_q),
+                        st::mainMenuButton,
+                        { &st::menuIconProfile }
+                    )->setClickedCallback([=] {
+                        const auto selected = QFileDialog::getOpenFileName(
+                            page,
+                            u"Выбери рамку для аватарки"_q,
+                            QString(),
+                            u"Рамка PNG / GIF (*.png *.gif)"_q);
+                        if (selected.isEmpty()) return;
+                        QString reason;
+                        if (!Customgram::ImportCustomProfileFrame(selected, &reason)) {
+                            QMessageBox::warning(
+                                page,
+                                u"Неподходящая рамка"_q,
+                                reason);
+                            return;
+                        }
+                        page->closeBox();
+                    });
+
+                    page->addButton(tr::lng_close(), [=] {
+                        page->closeBox();
+                    });
+                }));
+            });
+
+			AddButtonWithIcon(
+				sections,
+				rpl::single(u"Медиа"_q),
+				st::mainMenuButton,
+				{ &st::menuIconSavedMessages }
+			)->setClickedCallback([=] {
+                controller->show(Box([](not_null<Ui::GenericBox*> mediaBox) {
+                    Customgram::SetupMediaBox(mediaBox);
+                }));
+			});
+
+			AddButtonWithIcon(
+				sections,
+				rpl::single(u"Брендинг"_q),
+				st::mainMenuButton,
+				{ &st::menuIconSettings }
+			)->setClickedCallback([=] {
+				showSection(u"Брендинг"_q,
+					u"Локальное название и иконка приложения. Настройки в разработке."_q);
+			});
+
+			AddButtonWithIcon(
+				sections,
+				rpl::single(u"Дополнения"_q),
+				st::mainMenuButton,
+				{ &st::menuIconSettings }
+			)->setClickedCallback([=] {
+				showSection(u"Дополнения"_q,
+					u"Войс-мод и расширения Customgram. Настройки в разработке."_q);
+			});
+
+			AddButtonWithIcon(
+				sections,
+				rpl::single(u"Библиотека модов"_q),
+				st::mainMenuButton,
+				{ &st::menuIconSavedMessages }
+			)->setClickedCallback([=] {
+				showSection(u"Библиотека модов"_q,
+					u"Пользовательские моды и плагины. Библиотека в разработке."_q);
+			});
+
+			box->addButton(tr::lng_close(), [=] {
+				box->closeBox();
+			});
+		}));
+	});
 
 	Core::App().settings().systemDarkModeValue(
 	) | rpl::on_next([=](std::optional<bool> darkMode) {

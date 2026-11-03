@@ -104,6 +104,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_common_adapters.h"
 
 #include <QtCore/QMimeData>
+#include <QtCore/QCoreApplication>
+#include <QtCore/QFileInfo>
+#include <QtCore/QProcess>
+#include <QtCore/QDateTime>
+#include <QtCore/QTimer>
+#include <QtCore/QFile>
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkReply>
+#include <QtNetwork/QNetworkRequest>
+#include <QtWidgets/QApplication>
+#include <QtWidgets/QMessageBox>
 #include <QtGui/QTextBlock>
 #include <QtWidgets/QScrollBar>
 #include <QtWidgets/QTextEdit>
@@ -661,6 +672,24 @@ Widget::Widget(
 		) | rpl::on_next([=] {
 			checkUpdateStatus();
 		}, lifetime());
+	}
+
+	// Customgram uses GitHub releases and our own updater. The original
+	// Telegram updater must be disabled with -noupdate on client launch.
+	if ((_layout == Layout::Main) && Core::UpdaterDisabled()) {
+		_customgramUpdateTimer = new QTimer(this);
+		_customgramUpdateTimer->setInterval(90 * 1000);
+		QObject::connect(_customgramUpdateTimer, &QTimer::timeout,
+			this, [=] { checkCustomgramUpdates(); });
+		QObject::connect(qApp, &QGuiApplication::applicationStateChanged,
+			this, [=](Qt::ApplicationState state) {
+				if (state == Qt::ApplicationActive) {
+					checkCustomgramUpdates();
+				}
+			});
+		_customgramUpdateTimer->start();
+		checkCustomgramUpdates();
+		setupCustomgramRealtime();
 	}
 
 	_cancelSearch->setClickedCallback([=] {
@@ -2620,6 +2649,165 @@ QPixmap Widget::grabForFolderSlideAnimation() {
 		_scrollToTop->show();
 	}
 	return result;
+}
+
+// Run the updater only in quiet read-only mode while the client is open.
+// The updater returns 10 when a newer GitHub release exists, 0 when current.
+// Customgram realtime updates: SSE push via a separately hosted, webhook-backed relay.
+// The relay is ONLY a notification source. Updater.exe still validates GitHub.
+void Widget::setupCustomgramRealtime() {
+    if (_layout != Layout::Main || !Core::UpdaterDisabled()) return;
+    QFile config(QCoreApplication::applicationDirPath() + u"/update-stream-url.txt"_q);
+    if (!config.open(QIODevice::ReadOnly)) return;
+    const auto address = QString::fromUtf8(config.readAll()).trimmed();
+    const auto url = QUrl(address);
+    if (!url.isValid() || url.scheme() != u"https"_q || url.host().isEmpty()) {
+        return; // HTTPS is mandatory for public relays.
+    }
+    _customgramRealtimeUrl = address;
+    _customgramRealtimeManager = new QNetworkAccessManager(this);
+    _customgramRealtimeRetryTimer = new QTimer(this);
+    _customgramRealtimeRetryTimer->setSingleShot(true);
+    QObject::connect(_customgramRealtimeRetryTimer, &QTimer::timeout,
+        this, [=] { connectCustomgramRealtime(); });
+    connectCustomgramRealtime();
+}
+
+void Widget::connectCustomgramRealtime() {
+    if (!_customgramRealtimeManager || _customgramRealtimeReply) return;
+    QNetworkRequest request{ QUrl(_customgramRealtimeUrl) };
+    request.setRawHeader("Accept", "text/event-stream");
+    request.setRawHeader("Cache-Control", "no-cache");
+    const auto reply = _customgramRealtimeManager->get(request);
+    _customgramRealtimeReply = reply;
+    _customgramRealtimeBuffer.clear();
+
+    QObject::connect(reply, &QIODevice::readyRead, this, [=] {
+        _customgramRealtimeBuffer.append(reply->readAll());
+        _customgramRealtimeBuffer.replace("\r\n", "\n");
+        // Prevent a broken or malicious relay from growing memory indefinitely.
+        if (_customgramRealtimeBuffer.size() > 32768) {
+            reply->abort();
+            return;
+        }
+        while (true) {
+            const auto boundary = _customgramRealtimeBuffer.indexOf("\n\n");
+            if (boundary < 0) break;
+            const auto block = _customgramRealtimeBuffer.left(boundary);
+            _customgramRealtimeBuffer.remove(0, boundary + 2);
+            auto event = QByteArray();
+            auto version = QByteArray();
+            for (const auto &raw : block.split('\n')) {
+                const auto line = raw.trimmed();
+                if (line.startsWith("event:")) event = line.mid(6).trimmed();
+                else if (line.startsWith("data:")) version = line.mid(5).trimmed();
+            }
+            if (event == "release" && version.size() > 0 && version.size() < 32) {
+                _customgramRealtimeBackoffMs = 5000;
+                // Check GitHub; never trust an unauthenticated push as update proof.
+                QTimer::singleShot(500, this, [=] { checkCustomgramUpdates(); });
+                // GitHub's release API can briefly lag behind the webhook.
+                QTimer::singleShot(8000, this, [=] {
+                    if (!_updateTelegram) checkCustomgramUpdates();
+                });
+            }
+        }
+    });
+    QObject::connect(reply, &QNetworkReply::finished, this, [=] {
+        if (_customgramRealtimeReply == reply) _customgramRealtimeReply = nullptr;
+        _customgramRealtimeBuffer.clear();
+        reply->deleteLater();
+        if (_customgramRealtimeRetryTimer && !_customgramRealtimeRetryTimer->isActive()) {
+            _customgramRealtimeRetryTimer->start(_customgramRealtimeBackoffMs);
+            _customgramRealtimeBackoffMs = qMin(60000, _customgramRealtimeBackoffMs * 2);
+        }
+    });
+}
+void Widget::checkCustomgramUpdates() {
+	if ((_layout != Layout::Main) || _customgramUpdateChecking) {
+		return;
+	}
+
+	const auto directory = QCoreApplication::applicationDirPath();
+	const auto updater = directory + u"/Updater.exe"_q;
+	if (!QFileInfo::exists(updater)) {
+		return;
+	}
+
+	const auto nowMs = QDateTime::currentMSecsSinceEpoch();
+	if (_customgramLastUpdateCheckMs != 0
+		&& (nowMs - _customgramLastUpdateCheckMs) < (75 * 1000)) {
+		return;
+	}
+	_customgramLastUpdateCheckMs = nowMs;
+
+	_customgramUpdateChecking = true;
+	const auto process = new QProcess(this);
+	process->setWorkingDirectory(directory);
+	QObject::connect(process,
+		static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(
+			&QProcess::finished),
+		this,
+		[=](int code, QProcess::ExitStatus status) {
+			_customgramUpdateChecking = false;
+			if (status == QProcess::NormalExit && code == 10) {
+				showCustomgramUpdateButton();
+			} else if (status == QProcess::NormalExit && code == 0) {
+				// A newly published update may have been withdrawn.
+				if (_updateTelegram) {
+					_updateTelegram.destroy();
+					updateControlsGeometry();
+				}
+			}
+			process->deleteLater();
+		});
+	QObject::connect(process, &QProcess::errorOccurred,
+		this, [=](QProcess::ProcessError error) {
+			if (error == QProcess::FailedToStart) {
+				_customgramUpdateChecking = false;
+				process->deleteLater();
+			}
+		});
+	process->start(updater, { u"--check"_q });
+	// Never leave a stuck network check around indefinitely.
+	QTimer::singleShot(30000, process, [=] {
+		if (process->state() != QProcess::NotRunning) {
+			process->kill();
+		}
+	});
+}
+
+void Widget::showCustomgramUpdateButton() {
+	if ((_layout != Layout::Main) || _updateTelegram) {
+		return;
+	}
+	_updateTelegram.create(
+		this,
+		u"Обновить Customgram"_q,
+		st::dialogsUpdateButton,
+		st::dialogsInstallUpdate,
+		st::dialogsInstallUpdateOver,
+		true);
+	_updateTelegram->show();
+	_updateTelegram->setClickedCallback([=] {
+		const auto directory = QCoreApplication::applicationDirPath();
+		const auto updater = directory + u"/Updater.exe"_q;
+		const auto pid = QString::number(QCoreApplication::applicationPid());
+		if (!QProcess::startDetached(updater,
+			{ u"--apply-after-exit"_q, pid }, directory)) {
+			QMessageBox::warning(this,
+				u"Customgram"_q,
+				u"Не удалось запустить Updater.exe."_q);
+			return;
+		}
+		// Updater.exe waits for this process to exit, then installs and
+		// starts Customgram with its separate data directory.
+		Core::Quit();
+	});
+	if (_connecting) {
+		_connecting->raise();
+	}
+	updateControlsGeometry();
 }
 
 void Widget::checkUpdateStatus() {
