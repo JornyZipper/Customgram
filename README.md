@@ -1,101 +1,81 @@
-# [Telegram Desktop][telegram_desktop] – Official Messenger
+# Customgram
 
-This is the complete source code and the build instructions for the official [Telegram][telegram] messenger desktop client, based on the [Telegram API][telegram_api] and the [MTProto][telegram_proto] secure protocol.
+**Your Telegram. Your style.**
 
-[![Version](https://badge.fury.io/gh/telegramdesktop%2Ftdesktop.svg)](https://github.com/telegramdesktop/tdesktop/releases)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Windows./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/MacOS./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Linux./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Built with Depot](https://img.shields.io/badge/Built%20with-Depot.dev-46A75A)](https://depot.dev)
+Customgram — неофициальный клиент на основе [Telegram Desktop](https://github.com/telegramdesktop/tdesktop) с упором на персонализацию интерфейса и расширяемость.
 
-[![Preview of Telegram Desktop][preview_image]][preview_image_url]
+> [!IMPORTANT]
+> Проект находится в разработке. **V13.0.1** — версия Customgram, а не версия оригинального Telegram Desktop. Основа текущей сборки — Telegram Desktop **7.3.1**. Customgram не является официальным продуктом Telegram.
 
-The source code is published under GPLv3 with OpenSSL exception, the license is available [here][license].
+## ✨ Что уже есть
 
-## Supported systems
+- 🎨 Собственный брендинг: название Customgram и иконки приложения.
+- 🖥️ Сборка для Windows x64 на основе Telegram Desktop.
+- ⚙️ Пункт **Customgram** в главном меню и заготовка разделов настроек.
+- 📦 Портативная сборка в ZIP без обязательного установщика.
+- 🔄 Экспериментальный `Updater.exe` для проверки релизов на GitHub. Механизм обновления ещё проходит тестирование.
 
-The latest version is available for
+## 🛠️ Что планируется
 
-* [Windows 7 and above (64 bit)](https://telegram.org/dl/desktop/win64) ([portable](https://telegram.org/dl/desktop/win64_portable))
-* [Windows 7 and above (32 bit)](https://telegram.org/dl/desktop/win) ([portable](https://telegram.org/dl/desktop/win_portable))
-* [macOS 10.13 and above](https://telegram.org/dl/desktop/mac)
-* [Linux static build for 64 bit](https://telegram.org/dl/desktop/linux)
-* [Snap](https://snapcraft.io/telegram-desktop)
-* [Flatpak](https://flathub.org/apps/details/org.telegram.desktop)
+| Возможность | Статус |
+| --- | --- |
+| Настройка цветов, тем и элементов интерфейса | 🧪 В разработке |
+| Пользовательские шрифты | 📋 Запланировано |
+| Смена иконки и названия приложения из настроек | 📋 Запланировано |
+| Баннеры и расширенное оформление профиля | 📋 Запланировано |
+| Конвертация видео в видеосообщения («кружочки») | 📋 Запланировано |
+| Создание стикерпаков без сторонних ботов | 📋 Запланировано |
+| Голосовые эффекты (voice changer) | 📋 Запланировано |
+| Библиотека пользовательских модулей | 📋 Запланировано |
 
-## Old system versions
+Некоторые визуальные возможности могут быть **локальными**: например, изменение оформления профиля в клиенте не означает, что другие пользователи Telegram увидят его таким же.
 
-Version **4.9.9** was the last that supports older systems
+## 📥 Скачать и запустить
 
-* [macOS 10.12](https://updates.tdesktop.com/tmac/tsetup.4.9.9.dmg)
-* [Linux with glibc < 2.28 static build](https://updates.tdesktop.com/tlinux/tsetup.4.9.9.tar.xz)
+1. Откройте [Releases](https://github.com/Z1pperJ/Customgram/releases).
+2. Скачайте `Customgram-Windows.zip` из опубликованного релиза, когда он станет доступен.
+3. Распакуйте архив в отдельную папку.
+4. Запустите `Customgram.exe`.
 
-Version **2.4.4** was the last that supports older systems
+Для **отдельного каталога авторизации**, не пересекающегося с другими клиентами Telegram, можно запустить приложение из командной строки Windows:
 
-* [OS X 10.10 and 10.11](https://updates.tdesktop.com/tosx/tsetup-osx.2.4.4.dmg)
-* [Linux static build for 32 bit](https://updates.tdesktop.com/tlinux32/tsetup32.2.4.4.tar.xz)
+```bat
+Customgram.exe -many -workdir "%LOCALAPPDATA%\Customgram\data" -noupdate
+```
 
-Version **1.8.15** was the last that supports older systems
+Параметр `-noupdate` отключает стандартное обновление Telegram; для обновлений Customgram планируется собственный механизм. Если используется экспериментальный `Updater.exe`, сначала прочитайте инструкции соответствующего релиза.
 
-* [Windows XP and Vista](https://updates.tdesktop.com/tsetup/tsetup.1.8.15.exe) ([portable](https://updates.tdesktop.com/tsetup/tportable.1.8.15.zip))
-* [OS X 10.8 and 10.9](https://updates.tdesktop.com/tmac/tsetup.1.8.15.dmg)
-* [OS X 10.6 and 10.7](https://updates.tdesktop.com/tmac32/tsetup32.1.8.15.dmg)
+> [!CAUTION]
+> Никогда не публикуйте и не передавайте папки `data/`, `tdata/`, файлы сессий, `API_HASH` и другие секреты. **Эти файлы не должны попадать в ZIP-релизы или GitHub-репозиторий.**
 
-## Third-party
+## 💻 Сборка из исходников
 
-* Qt 6 ([LGPL](http://doc.qt.io/qt-6/lgpl.html)) and Qt 5.15 ([LGPL](http://doc.qt.io/qt-5/lgpl.html)) slightly patched
-* OpenSSL 3.2.1 ([Apache License 2.0](https://openssl-library.org/source/license/apache-license-2.0.txt))
-* WebRTC ([New BSD License](https://github.com/desktop-app/tg_owt/blob/master/LICENSE))
-* zlib ([zlib License](http://www.zlib.net/zlib_license.html))
-* LZMA SDK 9.20 ([public domain](http://www.7-zip.org/sdk.html))
-* liblzma ([public domain](http://tukaani.org/xz/))
-* Google Breakpad ([License](https://chromium.googlesource.com/breakpad/breakpad/+/master/LICENSE))
-* Google Crashpad ([Apache License 2.0](https://chromium.googlesource.com/crashpad/crashpad/+/master/LICENSE))
-* GYP ([BSD License](https://github.com/bnoordhuis/gyp/blob/master/LICENSE))
-* Ninja ([Apache License 2.0](https://github.com/ninja-build/ninja/blob/master/COPYING))
-* OpenAL Soft ([LGPL](https://github.com/kcat/openal-soft/blob/master/COPYING))
-* Opus codec ([BSD License](http://www.opus-codec.org/license/))
-* FFmpeg ([LGPL](https://www.ffmpeg.org/legal.html))
-* Guideline Support Library ([MIT License](https://github.com/Microsoft/GSL/blob/master/LICENSE))
-* Range-v3 ([Boost License](https://github.com/ericniebler/range-v3/blob/master/LICENSE.txt))
-* Open Sans font ([Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0.html))
-* Vazirmatn font ([SIL Open Font License 1.1](https://github.com/rastikerdar/vazirmatn/blob/master/OFL.txt))
-* Emoji alpha codes ([MIT License](https://github.com/emojione/emojione/blob/master/extras/alpha-codes/LICENSE.md))
-* xxHash ([BSD License](https://github.com/Cyan4973/xxHash/blob/dev/LICENSE))
-* QR Code generator ([MIT License](https://github.com/nayuki/QR-Code-generator#license))
-* CMake ([New BSD License](https://github.com/Kitware/CMake/blob/master/Copyright.txt))
-* Hunspell ([LGPL](https://github.com/hunspell/hunspell/blob/master/COPYING.LESSER))
-* Ada ([Apache License 2.0](https://github.com/ada-url/ada/blob/main/LICENSE-APACHE))
-* zxcvbn-c ([MIT License](https://github.com/tsyrogit/zxcvbn-c/blob/master/LICENSE.txt))
-* FrequencyWords by Hermit Dave ([Creative Commons Attribution-ShareAlike 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
+Проект основан на Telegram Desktop и использует его систему сборки CMake. Для Windows понадобятся совместимый набор инструментов Visual Studio и зависимости Telegram Desktop.
 
-## Build instructions
+После настройки окружения и генерации каталога `out`:
 
-* [Windows (32-bit and 64-bit)][win]
-* [macOS][mac]
-* [GNU/Linux using Docker][linux]
+```powershell
+cmake --build "..\out" --config Release --target Telegram --parallel 1
+```
 
-[//]: # (LINKS)
-[telegram]: https://telegram.org
-[telegram_desktop]: https://desktop.telegram.org
-[telegram_api]: https://core.telegram.org
-[telegram_proto]: https://core.telegram.org/mtproto
-[license]: LICENSE
-[win]: docs/building-win.md
-[mac]: docs/building-mac.md
-[linux]: docs/building-linux.md
-[preview_image]: https://github.com/telegramdesktop/tdesktop/blob/dev/docs/assets/preview.png "Preview of Telegram Desktop"
-[preview_image_url]: https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/docs/assets/preview.png
+Эта команда рассчитана на запуск из каталога исходников `Telegram` при соседнем каталоге сборки `out`. Имя CMake-цели может оставаться `Telegram`, даже если итоговый EXE называется `Customgram.exe`.
 
-## Thanks to
+При сборке используйте **свои** `TDESKTOP_API_ID` и `TDESKTOP_API_HASH`; не коммитьте секреты в репозиторий.
 
-<a href="https://depot.dev">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg">
-    <img alt="Depot" src="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg" width="150">
-  </picture>
-</a>
+## 🔄 Обновления
 
-CI infrastructure sponsored by [Depot](https://depot.dev) — fast GitHub Actions runners.
+Планируется распространение новых версий через **GitHub Releases**. Экспериментальный обновлятор должен проверять версию, загружать архив и сверять его SHA-256 перед применением.
 
+**Пока обновлятор не прошёл полный тест**, рекомендуемый способ обновления — скачать новую портативную сборку из Releases. Перед заменой файлов завершите Customgram; сохраняйте свою папку данных отдельно.
+
+## 🤝 Участие в проекте
+
+Предложения функций, сообщения об ошибках и идеи модулей можно оставлять в разделе [Issues](https://github.com/Z1pperJ/Customgram/issues).
+
+Пользовательские модули в будущем потребуют отдельной системы разрешений и проверки безопасности. Не устанавливайте непроверенные плагины, имеющие доступ к данным клиента.
+
+## 📄 Лицензии и благодарности
+
+Customgram основан на исходном коде [Telegram Desktop](https://github.com/telegramdesktop/tdesktop). Все права и уведомления об авторстве исходного проекта сохраняются; условия распространения и лицензии сторонних компонентов см. в оригинальном [LEGAL](https://github.com/telegramdesktop/tdesktop/blob/dev/LEGAL) и лицензионных файлах исходников.
+
+**Customgram — независимый проект и не связан официально с Telegram.**
