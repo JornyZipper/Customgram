@@ -1,8 +1,8 @@
+
 name: Windows.
 
 on:
   workflow_dispatch:
-
   push:
     branches:
       - customgram-dev
@@ -43,7 +43,6 @@ on:
       - 'Telegram/Telegram.plist'
 
 jobs:
-
   windows:
     name: Windows
     runs-on: windows-latest
@@ -62,7 +61,6 @@ jobs:
     defaults:
       run:
         shell: cmd
-
     steps:
       - name: Prepare directories.
         run: |
@@ -87,13 +85,11 @@ jobs:
           DOCPATH=$TBUILD/$REPO_NAME/docs/building-win.md
           SDK="$(grep "SDK version" $DOCPATH | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
           echo "SDK=$SDK" >> $GITHUB_ENV
-
           sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
 
           echo "$(sha256sum $TBUILD/$REPO_NAME/$PREPARE_PATH | awk '{ print $1 }')" >> CACHE_KEY.txt
           echo "$SDK" >> CACHE_KEY.txt
           echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
-
           echo "Configurate git for cherry-picks."
           git config --global user.email "you@example.com"
           git config --global user.name "Sample"
@@ -163,7 +159,6 @@ jobs:
         shell: bash
         run: |
           ARTIFACT_NAME="Customgram"
-
           ARCH=""
           if [ -n "${{ matrix.arch }}" ]; then
             case "${{ matrix.arch }}" in
@@ -178,7 +173,6 @@ jobs:
           if [ -n "${{ matrix.qt }}" ]; then
             ARTIFACT_NAME="${ARTIFACT_NAME} ${{ matrix.qt }}"
           fi
-
           GENERATOR=""
           if [ -n "${{ matrix.generator }}" ]; then
             GENERATOR="-G \"${{ matrix.generator }}\""
@@ -189,7 +183,6 @@ jobs:
 
           [ -n "$GENERATOR" ] && ARCH=""
           echo "TDESKTOP_BUILD_ARCH=$ARCH" >> $GITHUB_ENV
-
           DEFINE=""
           if [ -n "${{ matrix.defines }}" ]; then
             DEFINE="-D ${{ matrix.defines }}=ON"
@@ -199,7 +192,6 @@ jobs:
           echo "TDESKTOP_BUILD_DEFINE=$DEFINE" >> $GITHUB_ENV
 
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
-
           API="-D TDESKTOP_API_TEST=ON"
           if [ $GITHUB_REF == 'refs/heads/nightly' ]; then
             echo "Use the open credentials."
@@ -215,7 +207,6 @@ jobs:
         if: env.ONLY_CACHE == 'false'
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
-
           call configure.bat ^
           %TDESKTOP_BUILD_GENERATOR% ^
           %TDESKTOP_BUILD_ARCH% ^
@@ -237,6 +228,7 @@ jobs:
           mkdir artifact
           move %OUT%\Customgram.exe artifact/
           move %OUT%\Updater.exe artifact/
+
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
         if: (env.UPLOAD_ARTIFACT == 'true') || (github.ref == 'refs/heads/nightly')
