@@ -23,6 +23,7 @@ on:
       - 'Telegram/Telegram/**'
       - 'Telegram/configure.sh'
       - 'Telegram/Telegram.plist'
+      - '.github/workflows/win.yml'
   pull_request:
     branches:
       - customgram-dev
@@ -49,6 +50,7 @@ permissions:
 jobs:
   windows:
     name: Windows
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
 
     strategy:
@@ -283,26 +285,86 @@ jobs:
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: artifact\
-          retention-days: 1
+          retention-days: 30
 
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: windows
     runs-on: windows-latest
 
     permissions:
+      actions: read
       contents: write
 
     steps:
       - name: Checkout release scripts
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - name: Download build artifact
+      - name: Find the latest successful branch build
+        id: find-build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'win.yml',
+              branch: 'customgram-dev',
+              status: 'completed',
+              per_page: 100
+            });
+            const runs = response.data.workflow_runs
+              .filter(run => run.event === 'push'
+                && run.head_branch === 'customgram-dev'
+                && run.conclusion === 'success')
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            let selected = null;
+            for (const run of runs) {
+              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+                per_page: 100
+              });
+              if (artifacts.data.artifacts.some(a => a.name === 'Customgram x64' && !a.expired)) {
+                selected = run;
+                break;
+              }
+            }
+            if (!selected) {
+              core.setFailed('No successful Customgram x64 branch build artifact was found. Push customgram-dev and wait for its build to succeed before tagging.');
+            } else {
+              core.setOutput('run_id', String(selected.id));
+              core.setOutput('head_sha', selected.head_sha);
+              core.info(`Using branch build ${selected.id} from ${selected.head_sha}`);
+            }
+
+      - name: Verify that only the workflow changed after the compiled commit
+        shell: pwsh
+        env:
+          BUILD_SHA: ${{ steps.find-build.outputs.head_sha }}
+        run: |
+          if (-not $env:BUILD_SHA) { throw 'No successful build SHA was found.' }
+          git merge-base --is-ancestor $env:BUILD_SHA $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The available build is not from an ancestor of this tag. Push the source commit to customgram-dev and wait for a successful build.'
+          }
+          git diff --quiet $env:BUILD_SHA $env:GITHUB_SHA -- . ':(exclude).github/workflows/win.yml'
+          $diffExit = $LASTEXITCODE
+          if ($diffExit -eq 1) {
+            throw 'Source files changed after the available build. Push customgram-dev and wait for a successful build before creating the tag.'
+          }
+          if ($diffExit -gt 1) { throw "git diff failed with exit code $diffExit." }
+
+      - name: Download build artifact from the branch run
         uses: actions/download-artifact@v7
         with:
           name: Customgram x64
           path: artifact
+          run-id: ${{ steps.find-build.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore FFmpeg from the previous Customgram release
         shell: pwsh
