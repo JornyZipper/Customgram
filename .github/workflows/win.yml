@@ -24,6 +24,8 @@ on:
       - 'Telegram/configure.sh'
       - 'Telegram/Telegram.plist'
       - '.github/workflows/win.yml'
+      - '.gitignore'
+      - 'dist/**'
   pull_request:
     branches:
       - customgram-dev
@@ -316,7 +318,7 @@ jobs:
               per_page: 100
             });
             const runs = response.data.workflow_runs
-              .filter(run => run.event === 'push'
+              .filter(run => ['push', 'workflow_dispatch'].includes(run.event)
                 && run.head_branch === 'customgram-dev'
                 && run.conclusion === 'success')
               .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -366,7 +368,7 @@ jobs:
           run-id: ${{ steps.find-build.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore FFmpeg from the previous Customgram release
+      - name: Restore modules from the previous Customgram release
         shell: pwsh
         run: |
           $apiUrl = 'https://api.github.com/repos/JornyZipper/Customgram/releases/tags/V13.0.5'
@@ -391,14 +393,26 @@ jobs:
           $extract = Join-Path $env:RUNNER_TEMP 'Customgram-V13.0.5-extracted'
           if (Test-Path $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
           Expand-Archive -LiteralPath $oldZip -DestinationPath $extract -Force
-          $ffmpeg = Join-Path $extract 'modules\ffmpeg.exe'
-          if (-not (Test-Path -LiteralPath $ffmpeg -PathType Leaf)) {
+          $oldModules = Join-Path $extract 'modules'
+          if (-not (Test-Path -LiteralPath $oldModules -PathType Container)) {
+            throw 'The modules directory was not found inside the V13.0.5 release ZIP.'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $oldModules 'ffmpeg.exe') -PathType Leaf)) {
             throw 'modules\ffmpeg.exe was not found inside the V13.0.5 release ZIP.'
           }
 
           $artifactModules = Join-Path $env:GITHUB_WORKSPACE 'artifact\modules'
+          $newModulesBackup = Join-Path $env:RUNNER_TEMP 'Customgram-current-modules'
+          if (Test-Path -LiteralPath $newModulesBackup) { Remove-Item -LiteralPath $newModulesBackup -Recurse -Force }
+          if (Test-Path -LiteralPath $artifactModules -PathType Container) {
+            Copy-Item -LiteralPath $artifactModules -Destination $newModulesBackup -Recurse -Force
+            Remove-Item -LiteralPath $artifactModules -Recurse -Force
+          }
           New-Item -ItemType Directory -Force -Path $artifactModules | Out-Null
-          Copy-Item -LiteralPath $ffmpeg -Destination (Join-Path $artifactModules 'ffmpeg.exe') -Force
+          Copy-Item -Path (Join-Path $oldModules '*') -Destination $artifactModules -Recurse -Force
+          if (Test-Path -LiteralPath $newModulesBackup -PathType Container) {
+            Copy-Item -Path (Join-Path $newModulesBackup '*') -Destination $artifactModules -Recurse -Force
+          }
 
       - name: Prepare updater-compatible release package
         shell: pwsh
