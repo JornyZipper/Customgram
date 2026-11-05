@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text.h"
 
 class Painter;
+class QTimer;
 
 namespace style {
 struct FlatLabel;
@@ -29,6 +30,7 @@ public:
 		QWidget *parent,
 		rpl::producer<QString> text,
 		const style::FlatLabel &st);
+		void setRainbowTextEnabled(bool enabled);
 
 	[[nodiscard]] const style::FlatLabel &st() const {
 		return _st;
@@ -61,6 +63,7 @@ protected:
 private:
 	void setText(const QString &text);
 	void refreshMarqueeState();
+	void refreshRainbowState();
 	bool marqueeStep(crl::time now);
 	void paintMarquee(Painter &p, TextSelection selection);
 	void invalidateCache();
@@ -87,6 +90,9 @@ private:
 	const style::FlatLabel &_st;
 	Text::String _text;
 	std::optional<QColor> _textColorOverride;
+	bool _rainbowTextEnabled = false;
+    qreal _rainbowPhase = 0.;
+    QTimer *_rainbowTimer = nullptr;
 	QString _contextCopyText;
 	base::unique_qptr<PopupMenu> _menu;
 

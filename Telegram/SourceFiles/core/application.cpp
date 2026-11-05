@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/application.h"
+#include "customgram/cg_whats_new.h"
 
 #include "data/data_abstract_structure.h"
 #include "data/data_channel.h"
@@ -444,6 +445,11 @@ void Application::run() {
 
 	DEBUG_LOG(("Application Info: showing."));
 	_lastActivePrimaryWindow->finishFirstShow();
+
+	if (!_lastActivePrimaryWindow->locked()) {
+		Customgram::ShowPendingWhatsNew(
+			_lastActivePrimaryWindow);
+	}
 
 	if (!_lastActivePrimaryWindow->locked() && cStartToSettings()) {
 		_lastActivePrimaryWindow->showSettings();

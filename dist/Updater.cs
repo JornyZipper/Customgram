@@ -1,8 +1,8 @@
 // Customgram updater for Windows (.NET Framework 4.5+).
-// Compiled with the system C# compiler by BuildUpdater.cmd.
-// It checks GitHub Releases, verifies the release ZIP's SHA-256,
-// updates ONLY Customgram.exe and modules/, and preserves data/.
-// This software is provided as a starter implementation, not a code-signed release updater.
+// Downloads and prepares updates in the background while Customgram is running.
+// Verifies SHA-256 before extraction and updates ONLY Customgram.exe and modules/.
+// Preserves data/ and user authorization.
+
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -27,57 +27,83 @@ internal static class CustomgramUpdater {
     static int Main(string[] args) {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+
         bool checkOnly = args.Length > 0 && args[0] == "--check";
         bool applyAfterExit = args.Length == 2 && args[0] == "--apply-after-exit";
         bool launch = (args.Length > 0 && args[0] == "--launch") || applyAfterExit;
         bool manual = !launch && !checkOnly;
+
         string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         string program = Path.Combine(root, "Customgram.exe");
+
         try {
             if (!File.Exists(program)) {
-                if (!checkOnly) Error("Рядом с Updater.exe не найден Customgram.exe.");
+                if (!checkOnly)
+                    Error("Рядом с Updater.exe не найден Customgram.exe.");
                 return 2;
             }
+
             string repo = ReadRepo(root);
+
+            // Background preparation:
+            // download, verify and extract before showing the update button.
             if (checkOnly) {
-                if (repo == null) return 2;
+                if (repo == null)
+                    return 2;
+
                 try {
                     Version latest;
                     Version current;
-                    GetVersionPair(root, repo, out latest, out current);
-                    return latest.CompareTo(current) > 0 ? 10 : 0;
+
+                    Dictionary<string, object> release =
+                        GetVersionPair(root, repo, out latest, out current);
+
+                    if (latest.CompareTo(current) <= 0)
+                        return 0;
+
+                    PrepareUpdate(root, release, latest);
+                    return 10;
                 } catch {
-                    return 2; // Offline, bad release or invalid config: no UI.
+                    // Offline, invalid release or preparation failure.
+                    return 2;
                 }
             }
+
             if (applyAfterExit) {
                 int pid;
+
                 if (!int.TryParse(args[1], out pid) || pid <= 0)
                     throw new InvalidOperationException("Неверный идентификатор процесса.");
+
                 WaitForCustomgramToExit(pid, program);
             }
-            // --launch now starts Customgram immediately. The in-app UI
-            // performs its own silent periodic checks through --check.
+
+            // --launch starts Customgram immediately.
+            // --apply-after-exit installs the prepared update.
             if (repo != null && (!launch || applyAfterExit)) {
                 try {
-                    CheckAndApply(root, program, repo, manual);
+                    CheckAndApply(root, program, repo, manual, applyAfterExit);
                 } catch (Exception e) {
                     if (manual || applyAfterExit)
                         Error("Не удалось проверить/применить обновление:\n\n" + e.Message);
-                    // Keep the old app usable if the update fails.
                 }
             } else if (manual) {
                 Info("Настрой GitHub-репозиторий в github-repo.txt (пример: owner/repo).\n"
                    + "Пока интернет-проверка отключена.");
             }
         } catch (Exception e) {
-            if (!checkOnly) Error("Ошибка Updater.exe:\n\n" + e.Message);
-            if (!launch) return 1;
+            if (!checkOnly)
+                Error("Ошибка Updater.exe:\n\n" + e.Message);
+
+            if (!launch)
+                return 1;
         }
+
         if (launch) {
             try {
                 string data = Path.Combine(root, "data");
                 Directory.CreateDirectory(data);
+
                 Process.Start(new ProcessStartInfo {
                     FileName = program,
                     WorkingDirectory = root,
@@ -89,188 +115,558 @@ internal static class CustomgramUpdater {
                 return 3;
             }
         }
+
         return 0;
     }
 
     static string ReadRepo(string root) {
         string path = Path.Combine(root, "github-repo.txt");
-        if (!File.Exists(path)) return null;
+
+        if (!File.Exists(path))
+            return null;
+
         string repo = File.ReadAllText(path, Encoding.UTF8).Trim();
-        if (repo.StartsWith("#") || repo.Contains("OWNER") || repo.Contains("REPO")) return null;
-        // Only repo names, not URLs. No arbitrary external update servers.
-        return Regex.IsMatch(repo, @"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\z") ? repo : null;
+
+        if (repo.StartsWith("#") || repo.Contains("OWNER") || repo.Contains("REPO"))
+            return null;
+
+        return Regex.IsMatch(repo, @"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\z")
+            ? repo
+            : null;
     }
 
-    static void CheckAndApply(string root, string program, string repo, bool manual) {
+    // ---------------------------------------------------------
+    // Prepared update storage
+    // ---------------------------------------------------------
+
+    static string GetStagingRoot(string root) {
+        return Path.Combine(root, ".customgram-update-staging");
+    }
+
+    static string GetPreparedPayload(string root, Version version) {
+        string stagingRoot = GetStagingRoot(root);
+        string marker = Path.Combine(stagingRoot, "prepared-version.txt");
+        string payload = Path.Combine(stagingRoot, "payload");
+
+        try {
+            if (!File.Exists(marker))
+                return null;
+
+            string preparedVersion =
+                File.ReadAllText(marker, Encoding.UTF8).Trim();
+
+            if (preparedVersion != version.ToString())
+                return null;
+
+            if (!IsValidPreparedExe(Path.Combine(payload, "Customgram.exe")))
+                return null;
+
+            return payload;
+        } catch {
+            return null;
+        }
+    }
+
+    static bool IsValidPreparedExe(string path) {
+        try {
+            if (!File.Exists(path))
+                return false;
+
+            using (FileStream fs = File.OpenRead(path)) {
+                return fs.Length >= 102400
+                    && fs.ReadByte() == 'M'
+                    && fs.ReadByte() == 'Z';
+            }
+        } catch {
+            return false;
+        }
+    }
+
+    static void DeleteStaging(string root) {
+        string path = GetStagingRoot(root);
+
+        try {
+            if (Directory.Exists(path))
+                Directory.Delete(path, true);
+        } catch {
+            // A leftover staging folder can be removed on the next check.
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Silent background preparation
+    // ---------------------------------------------------------
+
+    static void PrepareUpdate(
+            string root,
+            Dictionary<string, object> release,
+            Version version) {
+
+        // Reuse a completed preparation for the same version.
+        if (GetPreparedPayload(root, version) != null)
+            return;
+
+        string stagingRoot = GetStagingRoot(root);
+
+        if (Directory.Exists(stagingRoot))
+            Directory.Delete(stagingRoot, true);
+
+        string archivePath = Path.Combine(stagingRoot, ZipAssetName);
+        string payloadPath = Path.Combine(stagingRoot, "payload");
+        string markerPath = Path.Combine(stagingRoot, "prepared-version.txt");
+
+        try {
+            Directory.CreateDirectory(stagingRoot);
+
+            object[] assets = release["assets"] as object[];
+
+            if (assets == null)
+                throw new InvalidOperationException("В GitHub Release нет assets.");
+
+            string zipUrl = GetAssetUrl(assets, ZipAssetName);
+            string shaUrl = GetAssetUrl(assets, HashAssetName);
+
+            if (zipUrl == null || shaUrl == null)
+                throw new InvalidOperationException(
+                    "В релизе отсутствует ZIP или SHA-256.");
+
+            string shaText;
+
+            using (WebClient client = NewClient())
+                shaText = client.DownloadString(shaUrl);
+
+            Match match = Regex.Match(shaText, @"\b[A-Fa-f0-9]{64}\b");
+
+            if (!match.Success)
+                throw new InvalidOperationException(
+                    "Неверный формат SHA-256 файла.");
+
+            // Download silently while Customgram remains open.
+            using (WebClient client = NewClient())
+                client.DownloadFile(zipUrl, archivePath);
+
+            if (!File.Exists(archivePath)
+                || new FileInfo(archivePath).Length > MaxZipBytes) {
+                throw new InvalidOperationException(
+                    "Архив отсутствует или слишком большой.");
+            }
+
+            string actual = Sha256(archivePath);
+
+            if (!actual.Equals(match.Value, IgnoreCase))
+                throw new InvalidOperationException("SHA-256 не совпадает.");
+
+            ExtractValidatedZip(archivePath, payloadPath);
+
+            if (!IsValidPreparedExe(
+                Path.Combine(payloadPath, "Customgram.exe"))) {
+                throw new InvalidOperationException(
+                    "Подготовленный Customgram.exe повреждён.");
+            }
+
+            // Marker is written only after successful preparation.
+            File.WriteAllText(
+                markerPath,
+                version.ToString(),
+                Encoding.UTF8);
+
+            File.Delete(archivePath);
+        } catch {
+            DeleteStaging(root);
+            throw;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Applying update
+    // ---------------------------------------------------------
+
+    static void CheckAndApply(
+            string root,
+            string program,
+            string repo,
+            bool manual,
+            bool alreadyConfirmed) {
+
         Version latest;
         Version current;
-        Dictionary<string, object> release = GetVersionPair(root, repo, out latest, out current);
+
+        Dictionary<string, object> release =
+            GetVersionPair(root, repo, out latest, out current);
+
         string versionFile = Path.Combine(root, "version.txt");
+
         if (latest.CompareTo(current) <= 0) {
-            if (manual) Info("Установлена актуальная версия Customgram V" + current + ".");
+            if (manual)
+                Info("Установлена актуальная версия Customgram V" + current + ".");
             return;
         }
+
         object[] assets = release["assets"] as object[];
-        if (assets == null) throw new InvalidOperationException("В GitHub Release нет assets.");
+
+        if (assets == null)
+            throw new InvalidOperationException("В GitHub Release нет assets.");
+
         string zipUrl = GetAssetUrl(assets, ZipAssetName);
         string shaUrl = GetAssetUrl(assets, HashAssetName);
+
         if (zipUrl == null || shaUrl == null) {
-            throw new InvalidOperationException("В релизе нужны " + ZipAssetName
-                + " и " + HashAssetName + ".");
+            throw new InvalidOperationException(
+                "В релизе нужны " + ZipAssetName + " и " + HashAssetName + ".");
         }
+
         if (RunningHere(program)) {
-            if (manual) Info("Закрой Customgram полностью и снова запусти обновление.");
+            if (manual)
+                Info("Закрой Customgram полностью и снова запусти обновление.");
             return;
         }
-        DialogResult answer = MessageBox.Show(
-            "Доступна версия Customgram V" + latest + ".\n"
-            + "Текущая версия: V" + current + ".\n\n"
-            + "Скачать и установить обновление?\n\n"
-            + "Папка data и авторизация останутся нетронутыми.",
-            "Customgram Update", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-        if (answer != DialogResult.Yes) return;
-        string tempRoot = Path.Combine(Path.GetTempPath(), "CustomgramUpdate-" + Guid.NewGuid().ToString("N"));
+
+        // First try the already prepared payload.
+        string preparedPath = GetPreparedPayload(root, latest);
+
+        if (preparedPath != null) {
+            ApplyUpdate(
+                root,
+                program,
+                preparedPath,
+                versionFile,
+                latest.ToString());
+
+                SaveWhatsNew(root, latest, release);
+
+            DeleteStaging(root);
+
+            Info("Customgram обновлён до V" + latest + ".\nАвторизация сохранена.");
+            return;
+        }
+
+        // The in-app update button already represents user consent.
+        if (!alreadyConfirmed) {
+            DialogResult answer = MessageBox.Show(
+                "Доступна версия Customgram V" + latest + ".\n"
+                + "Текущая версия: V" + current + ".\n\n"
+                + "Скачать и установить обновление?\n\n"
+                + "Папка data и авторизация останутся нетронутыми.",
+                "Customgram Update",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (answer != DialogResult.Yes)
+                return;
+        }
+
+        // Fallback: normal download if prepared files are unavailable.
+        string tempRoot = Path.Combine(
+            Path.GetTempPath(),
+            "CustomgramUpdate-" + Guid.NewGuid().ToString("N"));
+
         Directory.CreateDirectory(tempRoot);
+
         try {
             string archivePath = Path.Combine(tempRoot, ZipAssetName);
             string extractPath = Path.Combine(tempRoot, "payload");
+
             string shaText;
-            using (WebClient client = NewClient()) shaText = client.DownloadString(shaUrl);
+
+            using (WebClient client = NewClient())
+                shaText = client.DownloadString(shaUrl);
+
             Match match = Regex.Match(shaText, @"\b[A-Fa-f0-9]{64}\b");
-            if (!match.Success) throw new InvalidOperationException("Неверный формат SHA-256 файла.");
-            DownloadWithProgress(zipUrl, archivePath, "Customgram V" + latest);
+
+            if (!match.Success)
+                throw new InvalidOperationException(
+                    "Неверный формат SHA-256 файла.");
+
+            DownloadWithProgress(
+                zipUrl,
+                archivePath,
+                "Customgram V" + latest);
+
             if (new FileInfo(archivePath).Length > MaxZipBytes)
                 throw new InvalidOperationException("Архив слишком большой.");
+
             string actual = Sha256(archivePath);
-            if (!actual.Equals(match.Value, IgnoreCase)) {
-                throw new InvalidOperationException("SHA-256 не совпадает. Обновление отменено!");
-            }
+
+            if (!actual.Equals(match.Value, IgnoreCase))
+                throw new InvalidOperationException(
+                    "SHA-256 не совпадает. Обновление отменено!");
+
             ExtractValidatedZip(archivePath, extractPath);
-            ApplyUpdate(root, program, extractPath, versionFile, latest.ToString());
+
+            ApplyUpdate(
+                root,
+                program,
+                extractPath,
+                versionFile,
+                latest.ToString());
+				
+				SaveWhatsNew(root, latest, release);
+
+            DeleteStaging(root);
+
             Info("Customgram обновлён до V" + latest + ".\nАвторизация сохранена.");
         } finally {
-            try { Directory.Delete(tempRoot, true); } catch { /* harmless temporary files */ }
+            try {
+                Directory.Delete(tempRoot, true);
+            } catch {
+                // Harmless temporary files.
+            }
         }
     }
 
-    // The GitHub /releases/latest endpoint skips prereleases. Use the releases
-    // collection so testing versions (e.g. v13.0.2 marked prerelease) work.
+    // ---------------------------------------------------------
+    // GitHub Releases
+    // ---------------------------------------------------------
+
     static Dictionary<string, object> GetVersionPair(
-            string root, string repo, out Version latest, out Version current) {
+            string root,
+            string repo,
+            out Version latest,
+            out Version current) {
+
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-        current = ParseVersion(File.Exists(Path.Combine(root, "version.txt"))
-            ? File.ReadAllText(Path.Combine(root, "version.txt")).Trim() : "13.0.1");
+
+        current = ParseVersion(
+            File.Exists(Path.Combine(root, "version.txt"))
+                ? File.ReadAllText(Path.Combine(root, "version.txt")).Trim()
+                : "13.0.1");
+
         string json;
+
         using (WebClient client = NewClient()) {
             json = client.DownloadString(
                 "https://api.github.com/repos/" + repo + "/releases?per_page=30");
         }
-        object[] releases = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }
-            .DeserializeObject(json) as object[];
-        if (releases == null) throw new InvalidOperationException("Некорректный ответ GitHub Releases.");
+
+        object[] releases = new JavaScriptSerializer {
+            MaxJsonLength = 16 * 1024 * 1024
+        }.DeserializeObject(json) as object[];
+
+        if (releases == null)
+            throw new InvalidOperationException(
+                "Некорректный ответ GitHub Releases.");
+
         Dictionary<string, object> newest = null;
         latest = new Version(0, 0, 0);
+
         foreach (object item in releases) {
-            Dictionary<string, object> release = item as Dictionary<string, object>;
-            if (release == null || GetBool(release, "draft")) continue;
+            Dictionary<string, object> release =
+                item as Dictionary<string, object>;
+
+            if (release == null || GetBool(release, "draft"))
+                continue;
+
             Version version;
-            try { version = ParseVersion(GetString(release, "tag_name")); }
-            catch { continue; }
+
+            try {
+                version = ParseVersion(GetString(release, "tag_name"));
+            } catch {
+                continue;
+            }
+
             object listedAssets;
-            if (!release.TryGetValue("assets", out listedAssets)) continue;
+
+            if (!release.TryGetValue("assets", out listedAssets))
+                continue;
+
             object[] candidateAssets = listedAssets as object[];
-            if (candidateAssets == null) continue;
-            if (GetAssetUrl(candidateAssets, ZipAssetName) == null ||
-                GetAssetUrl(candidateAssets, HashAssetName) == null) continue;
+
+            if (candidateAssets == null)
+                continue;
+
+            if (GetAssetUrl(candidateAssets, ZipAssetName) == null
+                || GetAssetUrl(candidateAssets, HashAssetName) == null)
+                continue;
+
             if (version.CompareTo(latest) > 0) {
                 latest = version;
                 newest = release;
             }
         }
-        if (newest == null) throw new InvalidOperationException("Нет опубликованных релизов Customgram.");
+
+        if (newest == null)
+            throw new InvalidOperationException(
+                "Нет опубликованных релизов Customgram.");
+
         return newest;
     }
 
     static bool GetBool(Dictionary<string, object> data, string key) {
         object result;
-        return data.TryGetValue(key, out result) && result is bool && (bool)result;
+
+        return data.TryGetValue(key, out result)
+            && result is bool
+            && (bool)result;
     }
+
+    static string GetString(Dictionary<string, object> data, string key) {
+        object value;
+
+        return data.TryGetValue(key, out value)
+            ? Convert.ToString(value)
+            : "";
+    }
+
+    static void SaveWhatsNew(
+            string root,
+            Version version,
+            Dictionary<string, object> release) {
+
+        try {
+            var payload = new Dictionary<string, object>();
+            payload["version"] = version.ToString();
+            payload["name"] = GetString(release, "name");
+            payload["body"] = GetString(release, "body");
+
+            var json = new JavaScriptSerializer().Serialize(payload);
+
+            File.WriteAllText(
+                Path.Combine(root, "whats-new.pending"),
+                json,
+                new UTF8Encoding(false));
+        } catch {
+            // Не прерываем обновление, если описание сохранить не удалось.
+        }
+    }
+
+    static Version ParseVersion(string value) {
+        Match match = Regex.Match(
+            value.Trim(),
+            @"\Av?(\d+)\.(\d+)\.(\d+)\z",
+            RegexOptions.IgnoreCase);
+
+        if (!match.Success)
+            throw new InvalidOperationException(
+                "Версия должна быть вида v13.0.2: " + value);
+
+        return new Version(
+            int.Parse(match.Groups[1].Value),
+            int.Parse(match.Groups[2].Value),
+            int.Parse(match.Groups[3].Value));
+    }
+
+    static string GetAssetUrl(object[] assets, string wantedName) {
+        foreach (object item in assets) {
+            Dictionary<string, object> asset =
+                item as Dictionary<string, object>;
+
+            if (asset == null
+                || GetString(asset, "name") != wantedName)
+                continue;
+
+            string value = GetString(asset, "browser_download_url");
+            Uri uri;
+
+            if (!Uri.TryCreate(value, UriKind.Absolute, out uri)
+                || uri.Scheme != "https"
+                || !uri.Host.Equals("github.com", IgnoreCase)) {
+                throw new InvalidOperationException(
+                    "Недопустимый адрес обновления.");
+            }
+
+            return value;
+        }
+
+        return null;
+    }
+
+    // ---------------------------------------------------------
+    // Process handling
+    // ---------------------------------------------------------
 
     static void WaitForCustomgramToExit(int pid, string program) {
         try {
             using (Process p = Process.GetProcessById(pid)) {
-                // Never wait on an unrelated process if Windows recycled the PID.
-                if (!string.Equals(Path.GetFullPath(p.MainModule.FileName),
-                    Path.GetFullPath(program), IgnoreCase)) return;
+                if (!string.Equals(
+                    Path.GetFullPath(p.MainModule.FileName),
+                    Path.GetFullPath(program),
+                    IgnoreCase))
+                    return;
+
                 if (!p.WaitForExit(90000))
-                    throw new TimeoutException("Customgram не закрылся за 90 секунд.");
+                    throw new TimeoutException(
+                        "Customgram не закрылся за 90 секунд.");
             }
         } catch (ArgumentException) {
             // Already exited.
         }
     }
 
-    static WebClient NewClient() {
-        WebClient result = new WebClient();
-        result.Headers[HttpRequestHeader.UserAgent] = "Customgram-Updater/1.0";
-        result.Headers[HttpRequestHeader.Accept] = "application/vnd.github+json";
-        return result;
-    }
-
-    static Dictionary<string, object> ParseObject(string json) {
-        Dictionary<string, object> parsed = new JavaScriptSerializer()
-            .DeserializeObject(json) as Dictionary<string, object>;
-        if (parsed == null) throw new InvalidOperationException("Некорректный ответ GitHub.");
-        return parsed;
-    }
-
-    static string GetString(Dictionary<string, object> data, string key) {
-        object value;
-        return data.TryGetValue(key, out value) ? Convert.ToString(value) : "";
-    }
-
-    static Version ParseVersion(string value) {
-        Match match = Regex.Match(value.Trim(), @"\Av?(\d+)\.(\d+)\.(\d+)\z", RegexOptions.IgnoreCase);
-        if (!match.Success) throw new InvalidOperationException("Версия должна быть вида v13.0.2: " + value);
-        return new Version(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value));
-    }
-
-    static string GetAssetUrl(object[] assets, string wantedName) {
-        foreach (object item in assets) {
-            Dictionary<string, object> asset = item as Dictionary<string, object>;
-            if (asset == null || GetString(asset, "name") != wantedName) continue;
-            string value = GetString(asset, "browser_download_url");
-            Uri uri;
-            if (!Uri.TryCreate(value, UriKind.Absolute, out uri) || uri.Scheme != "https"
-                    || !uri.Host.Equals("github.com", IgnoreCase)) {
-                throw new InvalidOperationException("Недопустимый адрес обновления.");
-            }
-            return value;
-        }
-        return null;
-    }
-
     static bool RunningHere(string exe) {
         foreach (Process p in Process.GetProcessesByName("Customgram")) {
             try {
-                if (string.Equals(Path.GetFullPath(p.MainModule.FileName),
-                    Path.GetFullPath(exe), StringComparison.OrdinalIgnoreCase)) return true;
-            } catch { /* Windows may deny querying some processes */ }
-            finally { p.Dispose(); }
+                if (string.Equals(
+                    Path.GetFullPath(p.MainModule.FileName),
+                    Path.GetFullPath(exe),
+                    IgnoreCase))
+                    return true;
+            } catch {
+                // Windows may deny querying some processes.
+            } finally {
+                p.Dispose();
+            }
         }
+
         return false;
     }
+
+    // ---------------------------------------------------------
+    // Network
+    // ---------------------------------------------------------
+
+    static WebClient NewClient() {
+        WebClient result = new TimeoutWebClient();
+
+        result.Headers[HttpRequestHeader.UserAgent] =
+            "Customgram-Updater/1.0";
+
+        result.Headers[HttpRequestHeader.Accept] =
+            "application/vnd.github+json";
+
+        return result;
+    }
+
+    sealed class TimeoutWebClient : WebClient {
+        protected override WebRequest GetWebRequest(Uri address) {
+            WebRequest request = base.GetWebRequest(address);
+
+            HttpWebRequest http = request as HttpWebRequest;
+
+            if (http != null) {
+                http.Timeout = 30 * 60 * 1000;
+                http.ReadWriteTimeout = 30 * 60 * 1000;
+            }
+
+            return request;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Hash
+    // ---------------------------------------------------------
 
     static string Sha256(string file) {
         using (SHA256 alg = SHA256.Create())
         using (FileStream stream = File.OpenRead(file)) {
             byte[] result = alg.ComputeHash(stream);
-            return BitConverter.ToString(result).Replace("-", "").ToLowerInvariant();
+
+            return BitConverter.ToString(result)
+                .Replace("-", "")
+                .ToLowerInvariant();
         }
     }
 
-    static void DownloadWithProgress(string url, string path, string version) {
+    // ---------------------------------------------------------
+    // Visible download fallback
+    // ---------------------------------------------------------
+
+    static void DownloadWithProgress(
+            string url,
+            string path,
+            string version) {
+
         Uri uri = new Uri(url);
+
         using (WebClient client = NewClient())
         using (Form window = new Form()) {
             window.Text = "Customgram Updater";
@@ -281,131 +677,272 @@ internal static class CustomgramUpdater {
             window.MinimizeBox = false;
             window.StartPosition = FormStartPosition.CenterScreen;
             window.ControlBox = false;
-            Label label = new Label { Left = 16, Top = 15, Width = 378,
-                Text = "Загружается " + version + "..." };
-            ProgressBar bar = new ProgressBar { Left = 16, Top = 47, Width = 378,
-                Height = 22, Minimum = 0, Maximum = 100, Style = ProgressBarStyle.Marquee };
-            Button cancel = new Button { Text = "Отмена", Left = 304, Top = 79, Width = 90 };
+
+            Label label = new Label {
+                Left = 16,
+                Top = 15,
+                Width = 378,
+                Text = "Загружается " + version + "..."
+            };
+
+            ProgressBar bar = new ProgressBar {
+                Left = 16,
+                Top = 47,
+                Width = 378,
+                Height = 22,
+                Minimum = 0,
+                Maximum = 100,
+                Style = ProgressBarStyle.Marquee
+            };
+
+            Button cancel = new Button {
+                Text = "Отмена",
+                Left = 304,
+                Top = 79,
+                Width = 90
+            };
+
             window.Controls.Add(label);
             window.Controls.Add(bar);
             window.Controls.Add(cancel);
+
             Exception failure = null;
             bool cancelled = false;
-            cancel.Click += delegate { cancelled = true; client.CancelAsync(); cancel.Enabled = false; };
-            client.DownloadProgressChanged += delegate(object sender, DownloadProgressChangedEventArgs e) {
-                if (e.TotalBytesToReceive > 0) {
-                    bar.Style = ProgressBarStyle.Continuous;
-                    bar.Value = Math.Max(0, Math.Min(100, e.ProgressPercentage));
-                    label.Text = "Загружается " + version + ": " + e.ProgressPercentage + "%";
-                }
+
+            cancel.Click += delegate {
+                cancelled = true;
+                client.CancelAsync();
+                cancel.Enabled = false;
             };
-            client.DownloadFileCompleted += delegate(object sender, AsyncCompletedEventArgs e) {
-                failure = e.Error;
-                cancelled = cancelled || e.Cancelled;
-                window.Close();
+
+            client.DownloadProgressChanged +=
+                delegate(object sender, DownloadProgressChangedEventArgs e) {
+                    if (e.TotalBytesToReceive > 0) {
+                        bar.Style = ProgressBarStyle.Continuous;
+                        bar.Value = Math.Max(
+                            0,
+                            Math.Min(100, e.ProgressPercentage));
+
+                        label.Text = "Загружается "
+                            + version + ": "
+                            + e.ProgressPercentage + "%";
+                    }
+                };
+
+            client.DownloadFileCompleted +=
+                delegate(object sender, AsyncCompletedEventArgs e) {
+                    failure = e.Error;
+                    cancelled = cancelled || e.Cancelled;
+                    window.Close();
+                };
+
+            window.Shown += delegate {
+                client.DownloadFileAsync(uri, path);
             };
-            window.Shown += delegate { client.DownloadFileAsync(uri, path); };
+
             Application.Run(window);
-            if (cancelled) throw new OperationCanceledException("Загрузка отменена.");
-            if (failure != null) throw new IOException("Ошибка загрузки: " + failure.Message, failure);
-            if (!File.Exists(path)) throw new IOException("Файл обновления не скачан.");
+
+            if (cancelled)
+                throw new OperationCanceledException("Загрузка отменена.");
+
+            if (failure != null)
+                throw new IOException(
+                    "Ошибка загрузки: " + failure.Message,
+                    failure);
+
+            if (!File.Exists(path))
+                throw new IOException("Файл обновления не скачан.");
         }
     }
 
-    static void ExtractValidatedZip(string zipPath, string destination) {
+    // ---------------------------------------------------------
+    // ZIP validation and extraction
+    // ---------------------------------------------------------
+
+    static void ExtractValidatedZip(
+            string zipPath,
+            string destination) {
+
         Directory.CreateDirectory(destination);
+
         bool hasExe = false;
         long unpacked = 0;
+
         using (ZipArchive zip = ZipFile.OpenRead(zipPath)) {
             foreach (ZipArchiveEntry entry in zip.Entries) {
                 string name = entry.FullName.Replace('\\', '/');
-                if (name.StartsWith("/", StringComparison.Ordinal) || name.IndexOf(':') >= 0)
-                    throw new InvalidOperationException("Запрещённый путь внутри архива.");
+
+                if (name.StartsWith("/", StringComparison.Ordinal)
+                    || name.IndexOf(':') >= 0)
+                    throw new InvalidOperationException(
+                        "Запрещённый путь внутри архива.");
+
                 foreach (string segment in name.Split('/')) {
                     if (segment == ".." || segment == ".")
-                        throw new InvalidOperationException("Запрещённый путь ../ внутри архива.");
+                        throw new InvalidOperationException(
+                            "Запрещённый путь ../ внутри архива.");
                 }
-                if (name.Length == 0) continue;
+
+                if (name.Length == 0)
+                    continue;
+
                 bool folder = name.EndsWith("/", StringComparison.Ordinal);
+
                 if (!name.Equals("Customgram.exe", IgnoreCase)
                     && !name.Equals("Updater.exe", IgnoreCase)
                     && !name.Equals("github-repo.txt", IgnoreCase)
                     && !name.Equals("version.txt", IgnoreCase)
                     && !name.Equals("modules/", IgnoreCase)
                     && !name.StartsWith("modules/", IgnoreCase)) {
-                    throw new InvalidOperationException("Архив содержит посторонний файл: " + name);
+                    throw new InvalidOperationException(
+                        "Архив содержит посторонний файл: " + name);
                 }
-                // Unix symlink entries must never be followed or extracted.
+
+                // Reject Unix symbolic links.
                 if (((entry.ExternalAttributes >> 16) & 0xF000) == 0xA000)
-                    throw new InvalidOperationException("Символические ссылки в ZIP запрещены.");
-                if (entry.Length < 0 || unpacked > MaxUnpackedBytes - entry.Length)
-                    throw new InvalidOperationException("Слишком большой распакованный архив.");
+                    throw new InvalidOperationException(
+                        "Символические ссылки в ZIP запрещены.");
+
+                if (entry.Length < 0
+                    || unpacked > MaxUnpackedBytes - entry.Length)
+                    throw new InvalidOperationException(
+                        "Слишком большой распакованный архив.");
+
                 unpacked += entry.Length;
-                string target = Path.GetFullPath(Path.Combine(destination, name.Replace('/', Path.DirectorySeparatorChar)));
-                string prefix = Path.GetFullPath(destination) + Path.DirectorySeparatorChar;
+
+                string target = Path.GetFullPath(
+                    Path.Combine(
+                        destination,
+                        name.Replace('/', Path.DirectorySeparatorChar)));
+
+                string prefix =
+                    Path.GetFullPath(destination) + Path.DirectorySeparatorChar;
+
                 if (!target.StartsWith(prefix, IgnoreCase))
-                    throw new InvalidOperationException("Некорректный путь файла в ZIP.");
+                    throw new InvalidOperationException(
+                        "Некорректный путь файла в ZIP.");
+
                 if (folder) {
                     Directory.CreateDirectory(target);
                 } else {
                     Directory.CreateDirectory(Path.GetDirectoryName(target));
+
                     using (Stream input = entry.Open())
-                    using (FileStream output = File.Create(target)) input.CopyTo(output);
+                    using (FileStream output = File.Create(target))
+                        input.CopyTo(output);
                 }
-                if (name.Equals("Customgram.exe", IgnoreCase)) hasExe = true;
+
+                if (name.Equals("Customgram.exe", IgnoreCase))
+                    hasExe = true;
             }
         }
-        if (!hasExe) throw new InvalidOperationException("В ZIP отсутствует Customgram.exe в корне.");
+
+        if (!hasExe)
+            throw new InvalidOperationException(
+                "В ZIP отсутствует Customgram.exe в корне.");
+
         string exe = Path.Combine(destination, "Customgram.exe");
+
         using (FileStream fs = File.OpenRead(exe)) {
-            if (fs.Length < 102400 || fs.ReadByte() != 'M' || fs.ReadByte() != 'Z')
-                throw new InvalidOperationException("Customgram.exe в архиве не является корректным PE-файлом.");
+            if (fs.Length < 102400
+                || fs.ReadByte() != 'M'
+                || fs.ReadByte() != 'Z')
+                throw new InvalidOperationException(
+                    "Customgram.exe в архиве не является корректным PE-файлом.");
         }
     }
 
-    static void ApplyUpdate(string root, string program, string staged, string versionFile, string version) {
+    // ---------------------------------------------------------
+    // Installation with rollback
+    // ---------------------------------------------------------
+
+    static void ApplyUpdate(
+            string root,
+            string program,
+            string staged,
+            string versionFile,
+            string version) {
+
         string newExe = Path.Combine(staged, "Customgram.exe");
         string modules = Path.Combine(root, "modules");
         string newModules = Path.Combine(staged, "modules");
+
         string backupExe = Path.Combine(root, "Customgram.exe.previous");
         string backupModules = Path.Combine(root, "modules.previous");
+
         bool modulesChanged = false;
         bool exeChanged = false;
-        // Remove only the previously created modules backup after staging and verification.
-        if (Directory.Exists(backupModules)) Directory.Delete(backupModules, true);
+
+        if (!IsValidPreparedExe(newExe))
+            throw new InvalidOperationException(
+                "Новый Customgram.exe отсутствует или повреждён.");
+
+        if (Directory.Exists(backupModules))
+            Directory.Delete(backupModules, true);
+
         File.Copy(program, backupExe, true);
+
         try {
             if (Directory.Exists(newModules)) {
-                if (Directory.Exists(modules)) Directory.Move(modules, backupModules);
+                if (Directory.Exists(modules))
+                    Directory.Move(modules, backupModules);
+
                 Directory.Move(newModules, modules);
                 modulesChanged = true;
             }
+
             File.Copy(newExe, program, true);
             exeChanged = true;
-            File.WriteAllText(versionFile, version + Environment.NewLine, Encoding.UTF8);
-            // Keep previous EXE for manual recovery if the new build won't launch.
-            // Keep modules.previous as backup when it exists.
+
+            File.WriteAllText(
+                versionFile,
+                version + Environment.NewLine,
+                Encoding.UTF8);
+
+            // Keep previous EXE and modules backup for recovery.
         } catch {
             if (exeChanged || File.Exists(backupExe)) {
-                try { File.Copy(backupExe, program, true); } catch { }
+                try {
+                    File.Copy(backupExe, program, true);
+                } catch { }
             }
+
             if (modulesChanged) {
                 try {
-                    if (Directory.Exists(modules)) Directory.Delete(modules, true);
-                    if (Directory.Exists(backupModules)) Directory.Move(backupModules, modules);
+                    if (Directory.Exists(modules))
+                        Directory.Delete(modules, true);
+
+                    if (Directory.Exists(backupModules))
+                        Directory.Move(backupModules, modules);
                 } catch { }
-            } else if (Directory.Exists(backupModules) && !Directory.Exists(modules)) {
-                try { Directory.Move(backupModules, modules); } catch { }
+            } else if (Directory.Exists(backupModules)
+                && !Directory.Exists(modules)) {
+                try {
+                    Directory.Move(backupModules, modules);
+                } catch { }
             }
+
             throw;
         }
     }
 
+    // ---------------------------------------------------------
+    // Messages
+    // ---------------------------------------------------------
+
     static void Info(string text) {
-        MessageBox.Show(text, "Customgram Updater", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show(
+            text,
+            "Customgram Updater",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
     }
 
     static void Error(string text) {
-        MessageBox.Show(text, "Customgram Updater", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        MessageBox.Show(
+            text,
+            "Customgram Updater",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Error);
     }
 }

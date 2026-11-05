@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "customgram/cg_animated_avatar.h"
 #include "customgram/cg_avatar_frame_renderer.h"
 #include "customgram/cg_profile_banner.h"
+#include "customgram/cg_profile_customization.h"
 #include "window/customgram_profile_frame.h"
 
 #include "api/api_peer_colors.h"
@@ -646,11 +647,35 @@ void TopBar::adjustColors(const std::optional<QColor> &edgeColor) {
 	const auto shouldOverrideTitle = shouldOverride(_title->st().textFg);
 	const auto shouldOverrideStatus = shouldOverrideTitle
 		|| shouldOverride(_status->st().textFg);
-	_title->setTextColorOverride(collectible
-		? collectible->textColor
-		: shouldOverrideTitle
-		? std::optional<QColor>(st::groupCallMembersFg->c)
-		: std::nullopt);
+	auto customNicknameColor = std::optional<QColor>();
+	auto customNicknameRainbow = false;
+
+	if (_peer->isSelf() && !collectible) {
+		const auto appearance = Customgram::GetProfileAppearance();
+
+		if (appearance.nicknameColorEnabled) {
+			customNicknameRainbow = appearance.nicknameRainbow;
+
+			if (!appearance.nicknameRainbow) {
+				customNicknameColor = QColor(appearance.nicknameColor);
+			}
+		}
+	}
+
+	_title->setRainbowTextEnabled(customNicknameRainbow);
+
+	auto titleColor = collectible
+		? std::optional<QColor>(collectible->textColor)
+		: customNicknameColor;
+
+	if (!collectible
+	    && !customNicknameRainbow
+	    && !customNicknameColor
+	    && shouldOverrideTitle) {
+		titleColor = st::groupCallMembersFg->c;
+	}
+
+	_title->setTextColorOverride(titleColor);
 	_tabSubtitleOverride = collectible
 		? collectible->textColor
 		: shouldOverrideStatus
@@ -667,6 +692,7 @@ void TopBar::adjustColors(const std::optional<QColor> &edgeColor) {
 			_showLastSeen->entity()->setTextFgOverride(std::nullopt);
 		}
 	}
+
 	{
 		const auto membersLinkCallback = _statusLabel->membersLinkCallback();
 		const auto hiddenLinkCallback = _statusLabel->hiddenLinkCallback();

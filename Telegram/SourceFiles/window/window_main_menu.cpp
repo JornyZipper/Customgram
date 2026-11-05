@@ -409,7 +409,7 @@ MainMenu::MainMenu(
 			tr::lng_settings_current_version(
 				tr::now,
 				lt_version,
-				u"V0.1.0 x64"_q),
+				u"V0.2.0 x64"_q),
 			1) // Link 1.
 		.append(QChar(' '))
 		.append(QChar(8211))
@@ -1057,26 +1057,6 @@ void MainMenu::setupMenu() {
                 controller->show(Box([](not_null<Ui::GenericBox*> mediaBox) {
                     Customgram::SetupMediaBox(mediaBox);
                 }));
-			});
-
-			AddButtonWithIcon(
-				sections,
-				rpl::single(u"Брендинг"_q),
-				st::mainMenuButton,
-				{ &st::menuIconSettings }
-			)->setClickedCallback([=] {
-				showSection(u"Брендинг"_q,
-					u"Локальное название и иконка приложения. Настройки в разработке."_q);
-			});
-
-			AddButtonWithIcon(
-				sections,
-				rpl::single(u"Дополнения"_q),
-				st::mainMenuButton,
-				{ &st::menuIconSettings }
-			)->setClickedCallback([=] {
-				showSection(u"Дополнения"_q,
-					u"Войс-мод и расширения Customgram. Настройки в разработке."_q);
 			});
 
 			AddButtonWithIcon(

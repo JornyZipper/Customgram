@@ -2818,4 +2818,6 @@ target_sources(Telegram PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_avatar_frame_renderer.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_profile_custom_box.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_media_custom_box.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_whats_new.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/customgram/cg_whats_new.h"
 )

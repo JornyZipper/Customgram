@@ -1,5 +1,6 @@
 #include "customgram/cg_profile_customization.h"
 
+#include <QtGui/QColor>
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
@@ -32,6 +33,12 @@ ProfileAppearance ReadSettings() {
     v.frameOpacity = std::clamp(ini.value(QStringLiteral("frame/opacity"), 100).toInt(), 10, 100);
     v.frameSpeed = std::clamp(ini.value(QStringLiteral("frame/speed"), 100).toInt(), 25, 300);
     v.frameOffset = std::clamp(ini.value(QStringLiteral("frame/offset"), 0).toInt(), -10, 20);
+    v.nicknameColorEnabled = ini.value(
+    QStringLiteral("nickname/enabled"), false).toBool();
+    v.nicknameColor = ini.value(
+        QStringLiteral("nickname/color"), QStringLiteral("#FFFFFF")).toString();
+    v.nicknameRainbow = ini.value(
+        QStringLiteral("nickname/rainbow"), false).toBool();
     return v;
 }
 
@@ -56,6 +63,9 @@ void Save(const ProfileAppearance &v) {
     ini.setValue(QStringLiteral("frame/opacity"), v.frameOpacity);
     ini.setValue(QStringLiteral("frame/speed"), v.frameSpeed);
     ini.setValue(QStringLiteral("frame/offset"), v.frameOffset);
+    ini.setValue(QStringLiteral("nickname/enabled"), v.nicknameColorEnabled);
+    ini.setValue(QStringLiteral("nickname/color"), v.nicknameColor);
+    ini.setValue(QStringLiteral("nickname/rainbow"), v.nicknameRainbow);
     ini.sync();
 }
 
@@ -80,7 +90,7 @@ QString ProfileAppearanceDirectory() {
 ProfileAppearance GetProfileAppearance() { return Cached().value; }
 quint64 ProfileAppearanceRevision() { return Cached().revision; }
 
-void SetProfileAppearance(const ProfileAppearance &next) {
+    void SetProfileAppearance(const ProfileAppearance &next) {
     auto safe = next;
     safe.bannerHeight = std::clamp(safe.bannerHeight, 70, 240);
     safe.bannerDarkening = std::clamp(safe.bannerDarkening, 0, 75);
@@ -90,6 +100,12 @@ void SetProfileAppearance(const ProfileAppearance &next) {
     safe.frameOpacity = std::clamp(safe.frameOpacity, 10, 100);
     safe.frameSpeed = std::clamp(safe.frameSpeed, 25, 300);
     safe.frameOffset = std::clamp(safe.frameOffset, -10, 20);
+
+    const auto nicknameColor = QColor(safe.nicknameColor);
+    safe.nicknameColor = nicknameColor.isValid()
+        ? nicknameColor.name(QColor::HexRgb)
+        : QStringLiteral("#FFFFFF");
+
     Save(safe);
     Cached().value = safe;
     ++Cached().revision;

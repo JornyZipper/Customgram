@@ -29,7 +29,10 @@ struct ProfileAppearance {
     int frameScale = 100; // 85..140 percent
     int frameOpacity = 100; // 10..100 percent
     int frameSpeed = 100; // 25..300 percent
-    int frameOffset = 0; // -10..20 logical px
+    int frameOffset = 0;
+    bool nicknameColorEnabled = false;
+    QString nicknameColor = "#FFFFFF";
+    bool nicknameRainbow = false;// -10..20 logical px
 };
 
 // All functions called on the GUI thread.

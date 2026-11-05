@@ -2769,8 +2769,8 @@ void Widget::checkCustomgramUpdates() {
 			}
 		});
 	process->start(updater, { u"--check"_q });
-	// Never leave a stuck network check around indefinitely.
-	QTimer::singleShot(30000, process, [=] {
+	// Allow enough time for background download and preparation.
+	QTimer::singleShot(20 * 60 * 1000, process, [=] {
 		if (process->state() != QProcess::NotRunning) {
 			process->kill();
 		}

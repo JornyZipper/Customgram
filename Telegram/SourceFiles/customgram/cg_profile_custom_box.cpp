@@ -21,6 +21,7 @@
 #include <QtGui/QPainterPath>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QColorDialog>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QGraphicsOpacityEffect>
@@ -550,6 +551,102 @@ void SetupProfileCustomizationBox(Ui::GenericBox *box) {
     frameScroll->setWidget(frameCard);
     pages->addWidget(frameScroll);
 
+    // Nickname page.
+QVBoxLayout *nicknameLayout;
+auto *nicknameCard = MakeCard(pages, nicknameLayout);
+
+nicknameLayout->addWidget(MakeLabel(
+    QStringLiteral("Настройка ника"),
+    nicknameCard,
+    "cgHeading"));
+
+auto *nicknameCheck = new QCheckBox(
+    QStringLiteral("Включить цвет ника"),
+    nicknameCard);
+nicknameCheck->setChecked(state.nicknameColorEnabled);
+nicknameLayout->addWidget(nicknameCheck);
+
+auto *rainbowCheck = new QCheckBox(
+    QStringLiteral("Радужный ник (Rainbow)"),
+    nicknameCard);
+rainbowCheck->setChecked(state.nicknameRainbow);
+nicknameLayout->addWidget(rainbowCheck);
+
+auto *colorRow = new QWidget(nicknameCard);
+auto *colorLayout = new QHBoxLayout(colorRow);
+colorLayout->setContentsMargins(0, 0, 0, 0);
+
+auto *colorButton = new QPushButton(
+    QStringLiteral("Выбрать цвет"),
+    colorRow);
+
+auto *colorValue = MakeLabel(
+    state.nicknameColor,
+    colorRow,
+    "cgValue");
+
+colorLayout->addWidget(colorButton);
+colorLayout->addWidget(colorValue, 1);
+nicknameLayout->addWidget(colorRow);
+
+nicknameLayout->addWidget(MakeLabel(
+    QStringLiteral("Цвет будет применяться к имени твоего профиля."),
+    nicknameCard,
+    "cgMuted"));
+
+auto *nicknameScroll = new QScrollArea(pages);
+nicknameScroll->setObjectName(QStringLiteral("cgPageScroll"));
+nicknameScroll->setFrameShape(QFrame::NoFrame);
+nicknameScroll->setWidgetResizable(true);
+nicknameScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+nicknameScroll->setWidget(nicknameCard);
+pages->addWidget(nicknameScroll);
+
+colorButton->setEnabled(
+    state.nicknameColorEnabled && !state.nicknameRainbow);
+rainbowCheck->setEnabled(state.nicknameColorEnabled);
+
+QObject::connect(nicknameCheck, &QCheckBox::toggled,
+    host, [=](bool enabled) {
+        SaveBoolean(enabled,
+            [](ProfileAppearance &a, bool v) {
+                a.nicknameColorEnabled = v;
+            });
+        rainbowCheck->setEnabled(enabled);
+        colorButton->setEnabled(
+            enabled && !rainbowCheck->isChecked());
+        preview->update();
+    });
+
+QObject::connect(rainbowCheck, &QCheckBox::toggled,
+    host, [=](bool enabled) {
+        auto a = GetProfileAppearance();
+        a.nicknameRainbow = enabled;
+        SetProfileAppearance(a);
+
+        colorButton->setEnabled(
+            nicknameCheck->isChecked() && !enabled);
+        preview->update();
+    });
+
+QObject::connect(colorButton, &QPushButton::clicked,
+    host, [=] {
+        const auto current = GetProfileAppearance();
+        const auto selected = QColorDialog::getColor(
+            QColor(current.nicknameColor),
+            host,
+            QStringLiteral("Цвет ника"));
+
+        if (!selected.isValid()) return;
+
+        auto a = GetProfileAppearance();
+        a.nicknameColor = selected.name(QColor::HexRgb);
+        SetProfileAppearance(a);
+
+        colorValue->setText(a.nicknameColor);
+        preview->update();
+    });
+
     root->addWidget(pages);
 
     auto *actions = new QWidget(host);
@@ -579,10 +676,13 @@ void SetupProfileCustomizationBox(Ui::GenericBox *box) {
     confirmation->hide();
     root->addWidget(confirmation);
 
-    const auto pageHeight = [avatarCard, bannerCard, frameCard](int index) {
+    const auto pageHeight = [
+    avatarCard, bannerCard, frameCard, nicknameCard
+](int index) {
         const auto natural = (index == 0) ? avatarCard->sizeHint().height()
             : (index == 1) ? bannerCard->sizeHint().height()
-            : frameCard->sizeHint().height();
+            : (index == 2) ? frameCard->sizeHint().height()
+            : nicknameCard->sizeHint().height();
         return std::clamp(natural + 2, 150, kMaximumPageHeight);
     };
     const auto refreshHeight = [pages, pageHeight, resizePanel]() {
@@ -613,6 +713,7 @@ void SetupProfileCustomizationBox(Ui::GenericBox *box) {
     newTab(QStringLiteral("Аватар"), 0);
     newTab(QStringLiteral("Баннер"), 1);
     newTab(QStringLiteral("Рамки"), 2);
+	newTab(QStringLiteral("Кастомный ник"), 3);
 
     QObject::connect(reset, &QPushButton::clicked, host, [confirmation, refreshHeight] {
         confirmation->show();

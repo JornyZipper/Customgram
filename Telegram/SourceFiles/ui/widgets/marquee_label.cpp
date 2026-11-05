@@ -22,9 +22,27 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QClipboard>
 #include <QtGui/QCursor>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QColor>
+#include <QtCore/QTimer>
+#include <QtGui/QBrush>
+#include <QtGui/QLinearGradient>
+#include <QtGui/QPen>
 
 namespace Ui {
 namespace {
+
+QPen MakeRainbowPen(int width, qreal phase) {
+	QLinearGradient gradient(0., 0., std::max(width, 1), 0.);
+
+	for (auto i = 0; i <= 6; ++i) {
+		const auto hue = (i * 60 + qRound(phase * 360.)) % 360;
+		gradient.setColorAt(
+			i / 6.,
+			QColor::fromHsv(hue, 220, 255));
+	}
+
+	return QPen(QBrush(gradient), 1.);
+}	
 
 constexpr auto kMarqueeDelay = crl::time(500);
 constexpr auto kFrameDelta = crl::time(16);
@@ -40,6 +58,17 @@ MarqueeLabel::MarqueeLabel(
 , _st(st)
 , _marquee([=](crl::time now) { return marqueeStep(now); })
 , _edgeScroll([=](crl::time now) { return edgeScrollStep(now); }) {
+	_rainbowTimer = new QTimer(this);
+	_rainbowTimer->setInterval(50);
+
+	QObject::connect(_rainbowTimer, &QTimer::timeout, this, [=] {
+		_rainbowPhase += 0.015;
+		if (_rainbowPhase >= 1.) {
+			_rainbowPhase -= 1.;
+		}
+		invalidateCache();
+		update();
+	});
 	std::move(
 		text
 	) | rpl::on_next([=](const QString &value) {
@@ -49,6 +78,7 @@ MarqueeLabel::MarqueeLabel(
 	anim::Disables(
 	) | rpl::on_next([=](bool) {
 		refreshMarqueeState();
+		refreshRainbowState();
 	}, lifetime());
 
 	style::PaletteChanged(
@@ -65,6 +95,33 @@ void MarqueeLabel::setTextColorOverride(std::optional<QColor> color) {
 	_textColorOverride = color;
 	invalidateCache();
 	update();
+}
+
+void MarqueeLabel::setRainbowTextEnabled(bool enabled) {
+	if (_rainbowTextEnabled == enabled) {
+		return;
+	}
+	_rainbowTextEnabled = enabled;
+	_rainbowPhase = 0.;
+	refreshRainbowState();
+	invalidateCache();
+	update();
+}
+
+void MarqueeLabel::refreshRainbowState() {
+	const auto shouldRun = _rainbowTextEnabled
+		&& !_text.isEmpty()
+		&& isVisible()
+		&& _windowActive
+		&& !anim::Disabled();
+
+	if (shouldRun) {
+		if (!_rainbowTimer->isActive()) {
+			_rainbowTimer->start();
+		}
+	} else {
+		_rainbowTimer->stop();
+	}
 }
 
 void MarqueeLabel::setContextCopyText(const QString &copyText) {
@@ -104,6 +161,7 @@ void MarqueeLabel::setText(const QString &text) {
 	_lastUpdate = crl::now();
 	setNaturalWidth(_text.maxWidth());
 	refreshMarqueeState();
+	refreshRainbowState();
 	update();
 }
 
@@ -118,12 +176,14 @@ int MarqueeLabel::resizeGetHeight(int newWidth) {
 
 void MarqueeLabel::showEvent(QShowEvent *e) {
 	refreshMarqueeState();
+	refreshRainbowState();
 }
 
 void MarqueeLabel::hideEvent(QHideEvent *e) {
 	clearSelection();
 	_inside = false;
 	refreshMarqueeState();
+	refreshRainbowState();
 }
 
 bool MarqueeLabel::eventHook(QEvent *e) {
@@ -132,6 +192,7 @@ bool MarqueeLabel::eventHook(QEvent *e) {
 		|| (type == QEvent::WindowDeactivate)) {
 		_windowActive = (type == QEvent::WindowActivate);
 		refreshMarqueeState();
+		refreshRainbowState();
 	}
 	return RpWidget::eventHook(e);
 }
@@ -259,7 +320,9 @@ void MarqueeLabel::paintEvent(QPaintEvent *e) {
 		paintMarquee(p, selection);
 		return;
 	}
-	if (_textColorOverride) {
+	if (_rainbowTextEnabled && selection.empty()) {
+		p.setPen(MakeRainbowPen(width(), _rainbowPhase));
+	} else if (_textColorOverride) {
 		p.setPen(*_textColorOverride);
 	} else {
 		p.setPen(_st.textFg);
@@ -293,7 +356,9 @@ void MarqueeLabel::validateTape() {
 	_tape.setDevicePixelRatio(ratio);
 	_tape.fill(Qt::transparent);
 	auto q = Painter(&_tape);
-	if (_textColorOverride) {
+	if (_rainbowTextEnabled) {
+		q.setPen(MakeRainbowPen(natural, _rainbowPhase));
+	} else if (_textColorOverride) {
 		q.setPen(*_textColorOverride);
 	} else {
 		q.setPen(_st.textFg);
