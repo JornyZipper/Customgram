@@ -1246,7 +1246,7 @@ void TopBar::setupUserpicButton(
     if (const auto self = _peer->asUser(); self && self->isSelf()) {
                 new Customgram::AnimatedAvatarLayer(_userpicButton.get());
         new Customgram::AvatarFrameLayer(_userpicButton.get());
-        new Customgram::ProfileBannerLayer(this);
+    	_profileBanner = new Customgram::ProfileBannerLayer(this);
     }
 
 	if (_savedMessages) {
@@ -2925,6 +2925,10 @@ void TopBar::paintEvent(QPaintEvent *e) {
 			p.drawImage(x, y, _cachedGradient);
 		}
 	}
+	if (_profileBanner) {
+		_profileBanner->paint(p);
+	}
+
 	if (_patternEmoji && _patternEmoji->ready()) {
 		paintAnimatedPattern(p, clipBounds, geometry);
 	}

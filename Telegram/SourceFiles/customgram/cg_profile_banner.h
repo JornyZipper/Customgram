@@ -1,31 +1,35 @@
 #pragma once
 
-#include <QtGui/QImage>
+#include <QtCore/QObject>
 #include <QtCore/QPointer>
 #include <QtCore/QTimer>
-#include <QtWidgets/QWidget>
+#include <QtGui/QImage>
+
+class QPainter;
 class QMovie;
+class QWidget;
 
 namespace Customgram {
 
-// Transparent-to-input header image. Lowered beneath native Telegram controls.
-// Attach to a profile TopBar only when displaying your own profile.
-class ProfileBannerLayer final : public QWidget {
-public:
-    explicit ProfileBannerLayer(QWidget *profileHeader);
-protected:
-    bool eventFilter(QObject *watched, QEvent *event) override;
-    void paintEvent(QPaintEvent *event) override;
-private:
-    void refresh();
-    void syncGeometry();
-    QPointer<QWidget> _host;
-    QMovie *_movie = nullptr;
-    QImage _still;
-    QTimer _poll;
-    quint64 _revision = 0;
-    int _darkening = 0;
-    int _bannerHeight = 135;
-};
+    class ProfileBannerLayer final : public QObject {
+    public:
+        explicit ProfileBannerLayer(QWidget *host);
+
+        void paint(QPainter &p) const;
+
+    protected:
+        bool eventFilter(QObject *watched, QEvent *event) override;
+
+    private:
+        void refresh();
+
+        QPointer<QWidget> _host;
+        QMovie *_movie = nullptr;
+        QImage _still;
+        QTimer _poll;
+        quint64 _revision = 0;
+        int _darkening = 0;
+        int _bannerHeight = 135;
+    };
 
 } // namespace Customgram

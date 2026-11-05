@@ -409,7 +409,7 @@ MainMenu::MainMenu(
 			tr::lng_settings_current_version(
 				tr::now,
 				lt_version,
-				u"V13.0.5 x64"_q),
+				u"V0.1.0 x64"_q),
 			1) // Link 1.
 		.append(QChar(' '))
 		.append(QChar(8211))

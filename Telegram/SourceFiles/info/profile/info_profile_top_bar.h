@@ -24,6 +24,10 @@ struct ColorProfileSet;
 class SavedStarGiftId;
 } // namespace Data
 
+namespace Customgram {
+	class ProfileBannerLayer;
+}
+
 namespace Info::Profile {
 class TopicIconView;
 } // namespace Info::Profile
@@ -329,6 +333,7 @@ private:
 	QRect _lastUserpicRect;
 
 	base::unique_qptr<Ui::AbstractButton> _userpicButton;
+	Customgram::ProfileBannerLayer *_profileBanner = nullptr;
 
 	Ui::PeerUserpicView _userpicView;
 	InMemoryKey _userpicUniqueKey;

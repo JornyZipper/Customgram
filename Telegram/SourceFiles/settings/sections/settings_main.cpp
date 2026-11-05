@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_main.h"
 
 #include "settings/settings_common_session.h"
+#include "customgram/cg_profile_banner.h"
+#include <QtGui/QPainter>
 
 #include "api/api_cloud_password.h"
 #include "api/api_credits.h"
@@ -131,10 +133,12 @@ private:
 	QString _phoneText;
 	object_ptr<Ui::FlatLabel> _username = { nullptr };
 	object_ptr<Ui::IconButton> _qrButton = { nullptr };
+	Customgram::ProfileBannerLayer *_profileBanner = nullptr;
 
 };
 
 Cover::Cover(
+
 	QWidget *parent,
 	not_null<Window::SessionController*> controller,
 	not_null<UserData*> user)
@@ -167,6 +171,14 @@ Cover::Cover(
 , _name(this, st::infoProfileCover.name)
 , _phone(this, st::defaultFlatLabel, st::popupMenuWithIcons)
 , _username(this, st::infoProfileMegagroupCover.status) {
+	_profileBanner = new Customgram::ProfileBannerLayer(this);
+
+	paintRequest() | rpl::on_next([=] {
+		if (_profileBanner) {
+			auto p = QPainter(this);
+			_profileBanner->paint(p);
+		}
+	}, lifetime());
 	_user->updateFull();
 
 	_name->setSelectable(true);
