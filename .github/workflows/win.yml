@@ -216,22 +216,66 @@ jobs:
           %TDESKTOP_BUILD_ARCH% ^
           ${{ matrix.qt }} ^
           %TDESKTOP_BUILD_API% ^
-          -D CMAKE_CONFIGURATION_TYPES=Debug ^
+          -D CMAKE_CONFIGURATION_TYPES=Release ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF ^
           %TDESKTOP_BUILD_DEFINE%
 
-          cmake --build ..\out --config Debug --parallel
+          cmake --build ..\out --config Release --parallel
 
-      - name: Move artifact.
+      - name: Stage Customgram and compile custom updater.
         if: (env.UPLOAD_ARTIFACT == 'true') || (github.ref == 'refs/heads/nightly')
+        shell: pwsh
         run: |
-          set OUT=%TBUILD%\%REPO_NAME%\out\Debug
-          mkdir artifact
-          move %OUT%\Customgram.exe artifact/
-          move %OUT%\Updater.exe artifact/
+          $repo = Join-Path $env:TBUILD $env:REPO_NAME
+          $out = Join-Path $repo 'out\Release'
+          $dist = Join-Path $repo 'dist'
+          $artifact = Join-Path $env:GITHUB_WORKSPACE 'artifact'
+
+          New-Item -ItemType Directory -Force -Path $artifact | Out-Null
+
+          $app = Join-Path $out 'Customgram.exe'
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
+            throw "Build output not found: $app"
+          }
+          Copy-Item -LiteralPath $app -Destination (Join-Path $artifact 'Customgram.exe') -Force
+
+          $modules = Join-Path $out 'modules'
+          if (-not (Test-Path -LiteralPath $modules -PathType Container)) {
+            throw "Build modules directory not found: $modules"
+          }
+          $artifactModules = Join-Path $artifact 'modules'
+          New-Item -ItemType Directory -Force -Path $artifactModules | Out-Null
+          Copy-Item -Path (Join-Path $modules '*') -Destination $artifactModules -Recurse -Force
+
+          $cscCandidates = @(
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+          )
+          $csc = $cscCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $csc) { throw '.NET Framework C# compiler (csc.exe) was not found.' }
+
+          $updaterSource = Join-Path $dist 'Updater.cs'
+          $updaterIcon = Join-Path $dist 'Customgram.ico'
+          if (-not (Test-Path $updaterSource) -or -not (Test-Path $updaterIcon)) {
+            throw 'dist\Updater.cs or dist\Customgram.ico is missing.'
+          }
+
+          $updaterOutput = Join-Path $artifact 'Updater.exe'
+          & $csc /nologo /target:winexe /platform:anycpu /optimize+ `
+            "/win32icon:$updaterIcon" "/out:$updaterOutput" `
+            /reference:System.dll `
+            /reference:System.Windows.Forms.dll `
+            /reference:System.IO.Compression.dll `
+            /reference:System.IO.Compression.FileSystem.dll `
+            /reference:System.Web.Extensions.dll `
+            $updaterSource
+          if ($LASTEXITCODE -ne 0) { throw "Custom updater compilation failed with exit code $LASTEXITCODE." }
+          if (-not (Test-Path -LiteralPath $updaterOutput -PathType Leaf)) {
+            throw 'Custom updater compilation did not produce Updater.exe.'
+          }
 
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
@@ -251,21 +295,79 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout release scripts
+        uses: actions/checkout@v7
+
       - name: Download build artifact
         uses: actions/download-artifact@v7
         with:
           name: Customgram x64
           path: artifact
 
-      - name: Create ZIP
+      - name: Restore FFmpeg from the previous Customgram release
         shell: pwsh
         run: |
-          Compress-Archive -Path artifact\* -DestinationPath "Customgram-$env:GITHUB_REF_NAME-win-x64.zip" -Force
+          $apiUrl = 'https://api.github.com/repos/JornyZipper/Customgram/releases/tags/V13.0.5'
+          $headers = @{ 'User-Agent' = 'Customgram-Release-Builder/1.0'; 'Accept' = 'application/vnd.github+json' }
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+          $zipAsset = $release.assets | Where-Object { $_.name -eq 'Customgram-Windows.zip' } | Select-Object -First 1
+          $hashAsset = $release.assets | Where-Object { $_.name -eq 'Customgram-Windows.zip.sha256' } | Select-Object -First 1
+          if (-not $zipAsset -or -not $hashAsset) { throw 'The V13.0.5 release is missing the updater ZIP or SHA-256 asset.' }
+
+          $oldZip = Join-Path $env:RUNNER_TEMP 'Customgram-Windows-V13.0.5.zip'
+          $oldHash = Join-Path $env:RUNNER_TEMP 'Customgram-Windows-V13.0.5.zip.sha256'
+          Invoke-WebRequest -Uri $zipAsset.browser_download_url -Headers $headers -OutFile $oldZip
+          Invoke-WebRequest -Uri $hashAsset.browser_download_url -Headers $headers -OutFile $oldHash
+
+          $hashMatch = [regex]::Match((Get-Content -LiteralPath $oldHash -Raw), '\b[A-Fa-f0-9]{64}\b')
+          if (-not $hashMatch.Success) { throw 'The previous release SHA-256 file is malformed.' }
+          $actualHash = (Get-FileHash -LiteralPath $oldZip -Algorithm SHA256).Hash
+          if (-not $actualHash.Equals($hashMatch.Value, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The previous release ZIP failed SHA-256 verification.'
+          }
+
+          $extract = Join-Path $env:RUNNER_TEMP 'Customgram-V13.0.5-extracted'
+          if (Test-Path $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+          Expand-Archive -LiteralPath $oldZip -DestinationPath $extract -Force
+          $ffmpeg = Join-Path $extract 'modules\ffmpeg.exe'
+          if (-not (Test-Path -LiteralPath $ffmpeg -PathType Leaf)) {
+            throw 'modules\ffmpeg.exe was not found inside the V13.0.5 release ZIP.'
+          }
+
+          $artifactModules = Join-Path $env:GITHUB_WORKSPACE 'artifact\modules'
+          New-Item -ItemType Directory -Force -Path $artifactModules | Out-Null
+          Copy-Item -LiteralPath $ffmpeg -Destination (Join-Path $artifactModules 'ffmpeg.exe') -Force
+
+      - name: Prepare updater-compatible release package
+        shell: pwsh
+        run: |
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          $artifact = Join-Path $env:GITHUB_WORKSPACE 'artifact'
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -ne '13.0.6') {
+            throw "For the Customgram 0.1.0 migration, create tag v13.0.6 (not v0.1.0). Received: $env:GITHUB_REF_NAME"
+          }
+
+          Copy-Item -LiteralPath (Join-Path $artifact 'Customgram.exe') -Destination $dist -Force
+          Copy-Item -LiteralPath (Join-Path $artifact 'Updater.exe') -Destination $dist -Force
+
+          $distModules = Join-Path $dist 'modules'
+          if (Test-Path -LiteralPath $distModules) { Remove-Item -LiteralPath $distModules -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $distModules | Out-Null
+          Copy-Item -Path (Join-Path $artifact 'modules\*') -Destination $distModules -Recurse -Force
+
+          & (Join-Path $dist 'PrepareRelease.ps1') -Version $version
+
+          $releaseDir = Join-Path $dist "release-$version"
+          Copy-Item -LiteralPath (Join-Path $releaseDir 'Customgram-Windows.zip') -Destination (Join-Path $env:GITHUB_WORKSPACE 'Customgram-Windows.zip') -Force
+          Copy-Item -LiteralPath (Join-Path $releaseDir 'Customgram-Windows.zip.sha256') -Destination (Join-Path $env:GITHUB_WORKSPACE 'Customgram-Windows.zip.sha256') -Force
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Customgram ${{ github.ref_name }}
+          name: Customgram 0.1.0
           generate_release_notes: true
-          files: Customgram-${{ github.ref_name }}-win-x64.zip
+          files: |
+            Customgram-Windows.zip
+            Customgram-Windows.zip.sha256

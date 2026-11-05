@@ -86,14 +86,9 @@ settings.local.json
 /Telegram/.qtcreator/
 
 # Local build and runtime files
-/dist/
-/cg_animated_avatar.cpp
-/cg_animated_avatar.h
-/cg_avatar_frame_renderer.cpp
-/cg_avatar_frame_renderer.h
-/cg_profile_banner.cpp
-/cg_profile_banner.h
-/cg_profile_custom_box.cpp
-/cg_profile_custom_box.h
-/cg_profile_customization.cpp
-/cg_profile_customization.h
+/dist/*
+!/dist/Updater.cs
+!/dist/BuildUpdater.cmd
+!/dist/PrepareRelease.ps1
+!/dist/Customgram.ico
+!/dist/github-repo.txt
