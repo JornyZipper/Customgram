@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/unread_badge.h"
 #include "ui/controls/swipe_handler_data.h"
 #include "ui/layers/layer_widget.h"
+#include <QtCore/QTimer>
 
 namespace base {
 enum class EventFilterResult;
@@ -45,6 +46,7 @@ class Account;
 namespace Window {
 
 class SessionController;
+	void ShowCustomgramSettings(SessionController *controller);
 
 class MainMenu final : public Ui::LayerWidget {
 public:
@@ -91,6 +93,8 @@ private:
 	object_ptr<Ui::UserpicButton> _userpicButton;
 	Ui::Text::String _name;
 	int _nameVersion = 0;
+	QTimer *_nicknameRainbowTimer = nullptr;
+	double _nicknameRainbowPhase = 0.;
 	object_ptr<ToggleAccountsButton> _toggleAccounts;
 	object_ptr<Ui::FlatLabel> _setEmojiStatus;
 	std::unique_ptr<Info::Profile::EmojiStatusPanel> _emojiStatusPanel;

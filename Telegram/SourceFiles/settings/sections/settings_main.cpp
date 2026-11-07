@@ -9,7 +9,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "settings/settings_common_session.h"
 #include "customgram/cg_profile_banner.h"
+#include "customgram/cg_profile_custom_box.h"
 #include <QtGui/QPainter>
+#include "window/window_main_menu.h"
 
 #include "api/api_cloud_password.h"
 #include "api/api_credits.h"
@@ -379,6 +381,18 @@ void BuildSectionButtons(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto showOther = builder.showOther();
 
+        builder.addButton({
+                .title = rpl::single(u"Настройки Customgram"_q),
+                .icon = { &st::menuIconSettings },
+                .onClick = [=] {
+                        Window::ShowCustomgramSettings(controller);
+                },
+                .keywords = {
+                        u"customgram"_q,
+                        u"настройки"_q,
+                        u"profile"_q,
+                },
+        });
 	if (!session->supportMode()) {
 		builder.addButton({
 			.title = tr::lng_settings_my_account(),
@@ -390,6 +404,7 @@ void BuildSectionButtons(SectionBuilder &builder) {
 			.keywords = { u"profile"_q, u"edit"_q, u"information"_q },
 		});
 	}
+
 
 	builder.addSectionButton({
 		.title = tr::lng_settings_section_notify(),

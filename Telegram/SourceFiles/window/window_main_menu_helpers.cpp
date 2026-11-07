@@ -50,7 +50,7 @@ namespace Window {
 				return u"Qt version: %1."_q.arg(QT_VERSION_STR);
 			} else {
 				return u"Build date: %1.\nQt version: %2."_q
-					.arg(__DATE__)
+					.arg("Nov  7 2026")
 					.arg(QT_VERSION_STR);
 			}
 		});
