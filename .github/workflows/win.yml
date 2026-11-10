@@ -306,7 +306,7 @@ jobs:
 
       - name: Find the latest successful branch build
         id: find-build
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const response = await github.rest.actions.listWorkflowRuns({
