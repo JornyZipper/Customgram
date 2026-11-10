@@ -439,7 +439,7 @@ jobs:
           Copy-Item -LiteralPath (Join-Path $releaseDir 'Customgram-Windows.zip.sha256') -Destination (Join-Path $env:GITHUB_WORKSPACE 'Customgram-Windows.zip.sha256') -Force
 
       - name: Publish Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: Customgram 0.1.0
