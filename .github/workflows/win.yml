@@ -361,7 +361,7 @@ jobs:
           if ($diffExit -gt 1) { throw "git diff failed with exit code $diffExit." }
 
       - name: Download build artifact from the branch run
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: Customgram x64
           path: artifact
